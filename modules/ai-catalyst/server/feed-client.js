@@ -90,13 +90,22 @@ function createFeedClient({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetc
   return {
     async listBoards() {
       const body = await request('/feed/boards.json');
-      return Array.isArray(body.boards) ? body.boards.map(String) : [];
+      if (!Array.isArray(body.boards)) {
+        throw new FeedError('unexpected response shape from /feed/boards.json — expected a "boards" array');
+      }
+      return body.boards.map(String);
     },
     async getBoard(name) {
       return request(`/feed/board.json?board=${encodeURIComponent(name)}`);
     },
     async getShowcase() {
-      return request('/feed/showcase.json');
+      const body = await request('/feed/showcase.json');
+      for (const key of ['showcase_entries', 'strategy_pillars']) {
+        if (!Array.isArray(body[key])) {
+          throw new FeedError(`unexpected response shape from /feed/showcase.json — expected a "${key}" array`);
+        }
+      }
+      return body;
     },
   };
 }

@@ -112,6 +112,25 @@ describe('createFeedClient', () => {
     expect(err.message).toContain('timed out');
   });
 
+  it('rejects unexpected boards.json response shapes instead of returning an empty list', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, { nope: [] }));
+    const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
+
+    const err = await client.listBoards().catch(e => e);
+    expect(err).toBeInstanceOf(FeedError);
+    expect(err.message).toContain('/feed/boards.json');
+    expect(err.message).toContain('boards');
+  });
+
+  it('rejects unexpected showcase.json response shapes instead of returning empty catalogs', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, { nope: [] }));
+    const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
+
+    const err = await client.getShowcase().catch(e => e);
+    expect(err).toBeInstanceOf(FeedError);
+    expect(err.message).toContain('/feed/showcase.json');
+  });
+
   it('rejects non-JSON responses', async () => {
     const fetchFn = vi.fn(async () => ({ ok: true, status: 200, text: async () => '<html>oops</html>' }));
     const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
