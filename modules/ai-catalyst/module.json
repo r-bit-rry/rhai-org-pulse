@@ -32,7 +32,7 @@
       },
       {
         "key": "POC_EXPLORER_FEED_TOKEN",
-        "description": "Bearer token for the POC Explorer feed endpoints",
+        "description": "Bearer token for the POC Explorer feed endpoints, minted on the POC Explorer VM (FEED_TOKEN in .env) by the platform operators",
         "required": true
       }
     ]
