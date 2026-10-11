@@ -27,7 +27,12 @@
     "module": [
       {
         "key": "POC_EXPLORER_FEED_URL",
-        "description": "POC Explorer feed base URL (defaults to https://pocexplorer.redhataicatalyst.com)",
+        "description": "POC Explorer board/run feed base URL (defaults to https://pocexplorer.redhataicatalyst.com)",
+        "required": false
+      },
+      {
+        "key": "POC_EXPLORER_SHOWCASE_FEED_URL",
+        "description": "Base URL for the POC Explorer showcase feed (defaults to https://showcase.redhataicatalyst.com)",
         "required": false
       },
       {

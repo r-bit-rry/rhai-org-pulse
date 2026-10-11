@@ -16,6 +16,7 @@ const BOARD_SHEET_RE = /^board-\d{4}-\d{2}$/;
 const STORAGE_PREFIX = 'ai-catalyst';
 const INDEX_PATH = `${STORAGE_PREFIX}/index.json`;
 const DEFAULT_FEED_URL = 'https://pocexplorer.redhataicatalyst.com';
+const DEFAULT_SHOWCASE_FEED_URL = 'https://showcase.redhataicatalyst.com';
 
 const LIST_FIELDS = new Set([
   'capability_labels', 'red_hat_stack', 'sources'
@@ -180,7 +181,7 @@ module.exports = function registerRoutes(router, context) {
 
   async function getShowcaseFeedUrl() {
     const configured = (await getShowcaseConfig(readFromStorage)).feedUrl;
-    return configured || (secrets && secrets.POC_EXPLORER_FEED_URL) || DEFAULT_FEED_URL;
+    return configured || (secrets && secrets.POC_EXPLORER_SHOWCASE_FEED_URL) || DEFAULT_SHOWCASE_FEED_URL;
   }
 
   async function isConfigured() {

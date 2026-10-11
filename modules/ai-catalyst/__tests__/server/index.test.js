@@ -56,6 +56,13 @@ const BOARD_2026_10_PAYLOAD = {
   ],
 }
 
+const SHOWCASE_FEED_PAYLOAD = {
+  showcase_entries: [],
+  strategy_pillars: [],
+  site_config: {},
+  generated_at: '2026-10-11T00:00:00Z',
+}
+
 function jsonResponse(status, body) {
   return {
     ok: status >= 200 && status < 300,
@@ -579,5 +586,116 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
 
     expect(res.status).toHaveBeenCalledWith(400)
     expect(res.json).toHaveBeenCalledWith({ error: 'feedUrl must be a string' })
+  })
+})
+
+describe('ai-catalyst showcase feed URL resolution', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('defaults the showcase feed to the showcase host', async () => {
+    const fetchMock = stubFeedFeed(
+      { '/feed/showcase.json': SHOWCASE_FEED_PAYLOAD },
+      { url: 'https://showcase.redhataicatalyst.com' }
+    )
+    const { handlers } = makeContext()
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/showcase/refresh']({}, res)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://showcase.redhataicatalyst.com/feed/showcase.json',
+      expect.objectContaining({ headers: { Authorization: 'Bearer token-123' } })
+    )
+    expect(res.status).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'refreshed' }))
+  })
+
+  it('does not apply POC_EXPLORER_FEED_URL to the showcase feed', async () => {
+    const fetchMock = stubFeedFeed(
+      { '/feed/showcase.json': SHOWCASE_FEED_PAYLOAD },
+      { url: 'https://showcase.redhataicatalyst.com' }
+    )
+    const { handlers } = makeContext({
+      context: {
+        secrets: { POC_EXPLORER_FEED_TOKEN: 'token-123', POC_EXPLORER_FEED_URL: 'https://boards.example.test' },
+      },
+    })
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/showcase/refresh']({}, res)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://showcase.redhataicatalyst.com/feed/showcase.json',
+      expect.anything()
+    )
+    expect(res.status).not.toHaveBeenCalled()
+  })
+
+  it('overrides the showcase default with the POC_EXPLORER_SHOWCASE_FEED_URL secret', async () => {
+    const fetchMock = stubFeedFeed(
+      { '/feed/showcase.json': SHOWCASE_FEED_PAYLOAD },
+      { url: 'https://showcase-staging.example.test' }
+    )
+    const { handlers } = makeContext({
+      context: {
+        secrets: { POC_EXPLORER_FEED_TOKEN: 'token-123', POC_EXPLORER_SHOWCASE_FEED_URL: 'https://showcase-staging.example.test' },
+      },
+    })
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/showcase/refresh']({}, res)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://showcase-staging.example.test/feed/showcase.json',
+      expect.anything()
+    )
+    expect(res.status).not.toHaveBeenCalled()
+  })
+
+  it('prefers the stored showcase config over the showcase secret', async () => {
+    const fetchMock = stubFeedFeed(
+      { '/feed/showcase.json': SHOWCASE_FEED_PAYLOAD },
+      { url: 'https://configured-showcase.example.test' }
+    )
+    const { handlers } = makeContext({
+      storage: makeStorage({
+        'ai-catalyst/showcase/config.json': { feedUrl: 'https://configured-showcase.example.test' },
+      }),
+      context: {
+        secrets: { POC_EXPLORER_FEED_TOKEN: 'token-123', POC_EXPLORER_SHOWCASE_FEED_URL: 'https://showcase-staging.example.test' },
+      },
+    })
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/showcase/refresh']({}, res)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://configured-showcase.example.test/feed/showcase.json',
+      expect.anything()
+    )
+    expect(res.status).not.toHaveBeenCalled()
+  })
+
+  it('keeps the board feed on POC_EXPLORER_FEED_URL', async () => {
+    const fetchMock = stubFeedFeed(
+      { '/feed/boards.json': { boards: [] } },
+      { url: 'https://boards.example.test' }
+    )
+    const { handlers } = makeContext({
+      context: {
+        secrets: { POC_EXPLORER_FEED_TOKEN: 'token-123', POC_EXPLORER_FEED_URL: 'https://boards.example.test' },
+      },
+    })
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://boards.example.test/feed/boards.json',
+      expect.anything()
+    )
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok', synced: 0 }))
   })
 })

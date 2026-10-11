@@ -131,7 +131,7 @@ onMounted(() => {
 
         <template v-if="boardConfig">
           <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">POC Explorer Feed URL</label>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">POC Explorer Board Feed URL</label>
             <input
               v-model="boardConfig.feedUrl"
               type="text"
@@ -139,7 +139,7 @@ onMounted(() => {
               class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm bg-white dark:bg-gray-800 dark:text-gray-300 placeholder-gray-400 dark:placeholder-gray-500"
             />
             <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">
-              Optional override of the POC Explorer feed base URL. The POC_EXPLORER_FEED_TOKEN secret is required for syncing.
+              Optional override of the board/run feed base URL. The POC_EXPLORER_FEED_TOKEN secret is required for syncing.
             </p>
           </div>
 
@@ -168,15 +168,15 @@ onMounted(() => {
 
       <template v-else-if="showcaseConfig">
         <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">POC Explorer Feed URL</label>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">POC Explorer Showcase Feed URL</label>
           <input
             v-model="showcaseConfig.feedUrl"
             type="text"
-            placeholder="https://pocexplorer.redhataicatalyst.com (default)"
+            placeholder="https://showcase.redhataicatalyst.com (default)"
             class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm bg-white dark:bg-gray-800 dark:text-gray-300 placeholder-gray-400 dark:placeholder-gray-500"
           />
           <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">
-            Optional override of the POC Explorer feed base URL used for showcase data.
+            Optional override of the showcase feed base URL (separate from the board feed URL).
           </p>
         </div>
 
