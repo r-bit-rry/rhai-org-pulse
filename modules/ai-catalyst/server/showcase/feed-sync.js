@@ -1,7 +1,4 @@
-const { createGoogleSheetsClient } = require('../../../../shared/server/google-sheets');
-
-const ENTRIES_TAB = 'showcase_entries';
-const PILLARS_TAB = 'strategy_pillars';
+const { createFeedClient } = require('../feed-client');
 
 const STORAGE_KEY = 'ai-catalyst/showcase/showcase-data.json';
 const CACHE_TTL = 5 * 60 * 1000;
@@ -45,7 +42,7 @@ const PILLAR_COLUMN_MAP = {
 };
 
 // Keep the fallback palette stable. The key-based hash means a new pillar can
-// be added to the sheet without needing a code change just to get a colour.
+// be added to the feed without needing a code change just to get a colour.
 const PILLAR_FALLBACK_COLORS = [
   '#3b82f6', // blue
   '#a855f7', // purple
@@ -67,33 +64,38 @@ const KNOWN_PILLAR_COLORS = {
   'data-science-engineering': '#06b6d4',
 };
 
-const PIPE_DELIMITED_FIELDS = new Set([
+const ARRAY_FIELDS = new Set([
   'capabilityTags', 'customerNeedTags', 'searchKeywords',
   'knownGoodWith', 'githubUrl', 'quayUrl', 'otherResourceUrls',
 ]);
 
 let _cache = null;
 
+/**
+ * Parse a list field from the POC Explorer showcase feed. Feed rows keep
+ * native arrays, but string forms are accepted for robustness: the current
+ * feed joins with ", " and values from the old sheet era are pipe-joined.
+ */
 function parseArrayField(value) {
+  if (Array.isArray(value)) {
+    return value.map(s => String(s).trim()).filter(Boolean);
+  }
   if (!value || typeof value !== 'string') return [];
-  return value.split('|').map(s => s.trim()).filter(Boolean);
+  const parts = value.includes('|') ? value.split('|') : value.split(', ');
+  return parts.map(s => s.trim()).filter(Boolean);
 }
 
-function mapRow(headers, row, columnMap) {
+function mapRow(row, columnMap) {
   const obj = {};
-  for (let i = 0; i < headers.length; i++) {
-    const header = headers[i].toLowerCase().trim();
-    const key = columnMap[header];
-    if (!key) continue;
-    let val = i < row.length ? row[i] : '';
-    if (val === undefined || val === null) val = '';
-    if (typeof val !== 'number') val = String(val).trim();
-    if (PIPE_DELIMITED_FIELDS.has(key)) {
-      obj[key] = parseArrayField(val);
-    } else if (key === 'sortOrder') {
-      obj[key] = parseInt(val, 10) || 999;
+  const source = row || {};
+  for (const [header, key] of Object.entries(columnMap)) {
+    const raw = source[header];
+    if (ARRAY_FIELDS.has(key)) {
+      obj[key] = parseArrayField(raw);
     } else {
-      obj[key] = val;
+      let val = raw === undefined || raw === null ? '' : raw;
+      if (typeof val !== 'number') val = String(val).trim();
+      obj[key] = key === 'sortOrder' ? (parseInt(val, 10) || 999) : val;
     }
   }
   return obj;
@@ -149,10 +151,10 @@ function normalizePillar(pillar) {
 /**
  * Build the shared pillar catalog used by board and showcase responses.
  *
- * Sheet metadata is authoritative when present, but category keys referenced
+ * Feed pillar metadata is authoritative when present, but category keys referenced
  * by data are also represented so a new pillar can be used before its metadata
  * row is refreshed. This keeps the data visible and gives it deterministic
- * display metadata until the sheet catches up.
+ * display metadata until the feed catches up.
  */
 function mergePillarMetadata(pillars, referencedKeys) {
   const byKey = new Map();
@@ -203,20 +205,16 @@ function normalizeShowcaseData(data) {
   };
 }
 
-async function fetchShowcaseData(sheetId, keyFilePath, storage) {
-  const client = createGoogleSheetsClient({ keyFile: keyFilePath });
+async function fetchShowcaseData(baseUrl, token, storage) {
+  const client = createFeedClient({ baseUrl, token });
+  const payload = await client.getShowcase();
 
-  const [entriesRaw, pillarsRaw] = await Promise.all([
-    client.fetchRawSheet(sheetId, ENTRIES_TAB),
-    client.fetchRawSheet(sheetId, PILLARS_TAB),
-  ]);
-
-  const entries = entriesRaw.rows
-    .map(row => mapRow(entriesRaw.headers, row, ENTRY_COLUMN_MAP))
+  const entries = (Array.isArray(payload.showcase_entries) ? payload.showcase_entries : [])
+    .map(row => mapRow(row, ENTRY_COLUMN_MAP))
     .filter(e => e.slug);
 
-  const pillars = pillarsRaw.rows
-    .map(row => mapRow(pillarsRaw.headers, row, PILLAR_COLUMN_MAP))
+  const pillars = (Array.isArray(payload.strategy_pillars) ? payload.strategy_pillars : [])
+    .map(row => mapRow(row, PILLAR_COLUMN_MAP))
     .filter(p => p.pillarKey)
     .sort((a, b) => a.sortOrder - b.sortOrder);
 
@@ -235,23 +233,23 @@ async function fetchShowcaseData(sheetId, keyFilePath, storage) {
   return result;
 }
 
-async function getShowcaseData(sheetId, keyFilePath, storage) {
+async function getShowcaseData(baseUrl, token, storage) {
   if (_cache && Date.now() - _cache.ts < CACHE_TTL) {
     return _cache.data;
   }
 
   try {
-    return await fetchShowcaseData(sheetId, keyFilePath, storage);
+    return await fetchShowcaseData(baseUrl, token, storage);
   } catch (err) {
     if (_cache) {
-      console.error('[ai-catalyst:showcase] Sheet fetch failed, using cached data:', err.message);
+      console.error('[ai-catalyst:showcase] Feed fetch failed, using cached data:', err.message);
       return _cache.data;
     }
 
     if (storage) {
       const stored = await storage.readFromStorage(STORAGE_KEY);
       if (stored) {
-        console.error('[ai-catalyst:showcase] Sheet fetch failed, using stored fallback:', err.message);
+        console.error('[ai-catalyst:showcase] Feed fetch failed, using stored fallback:', err.message);
         _cache = { data: stored, ts: 0 };
         return normalizeShowcaseData(stored);
       }
@@ -279,6 +277,6 @@ module.exports = {
   normalizeShowcaseData,
   ENTRY_COLUMN_MAP,
   PILLAR_COLUMN_MAP,
-  PIPE_DELIMITED_FIELDS,
+  ARRAY_FIELDS,
   STORAGE_KEY,
 };

@@ -7,7 +7,7 @@ const {
   getReferencedPillarKeys,
   mergePillarMetadata,
   normalizeShowcaseData,
-} = require('./showcase/sheets-sync');
+} = require('./showcase/feed-sync');
 const { getConfig: getShowcaseConfig, saveConfig: saveShowcaseConfig } = require('./showcase/config');
 const { getConfig: getBoardConfig, saveConfig: saveBoardConfig } = require('./board-config');
 
