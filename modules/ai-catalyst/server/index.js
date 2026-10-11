@@ -12,7 +12,7 @@ const { getConfig: getShowcaseConfig, saveConfig: saveShowcaseConfig } = require
 const { getConfig: getBoardConfig, saveConfig: saveBoardConfig } = require('./board-config');
 
 const DEMO_MODE = process.env.DEMO_MODE === 'true';
-const BOARD_SHEET_RE = /^board-\d{4}-\d{2}$/;
+const BOARD_NAME_RE = /^board-\d{4}-\d{2}$/;
 const STORAGE_PREFIX = 'ai-catalyst';
 const INDEX_PATH = `${STORAGE_PREFIX}/index.json`;
 const DEFAULT_FEED_URL = 'https://pocexplorer.redhataicatalyst.com';
@@ -258,7 +258,7 @@ module.exports = function registerRoutes(router, context) {
         token: getFeedToken(),
       });
 
-      const boardNames = (await client.listBoards()).filter(n => BOARD_SHEET_RE.test(n));
+      const boardNames = (await client.listBoards()).filter(n => BOARD_NAME_RE.test(n));
 
       if (boardNames.length === 0) {
         return { synced: 0, message: 'No boards found' };
