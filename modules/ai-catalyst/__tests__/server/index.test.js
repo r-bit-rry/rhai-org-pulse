@@ -449,17 +449,67 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
     })
   })
 
-  it('surfaces unknown board errors', async () => {
+  it('reports unknown board errors per board without failing the whole sync', async () => {
     stubFeedFeed({ '/feed/boards.json': { boards: ['board-1999-01'] } })
     const { handlers } = makeContext()
 
     const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
     await handlers['/sync']({}, res)
 
-    expect(res.status).toHaveBeenCalledWith(500)
-    expect(res.json).toHaveBeenCalledWith({
-      error: expect.stringContaining('unknown board')
+    expect(res.status).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'ok',
+      synced: 0,
+      total: 1,
+      failed: [{ board: 'board-1999-01', error: expect.stringContaining('unknown board') }],
+    }))
+  })
+
+  it('continues past per-board failures and reports them honestly', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': FEED_BOARDS_PAYLOAD,
+      '/feed/board.json?board=board-2026-09': BOARD_2026_09_PAYLOAD,
     })
+    const { handlers, storage } = makeContext()
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(res.status).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'ok',
+      synced: 1,
+      total: 2,
+      failed: [{ board: 'board-2026-10', error: expect.stringContaining('unknown board') }],
+    }))
+
+    expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toHaveLength(2)
+    const index = storage.map.get('ai-catalyst/index.json')
+    expect(index.boards.map(b => b.month)).toEqual(['2026-09'])
+  })
+
+  it('logs and returns per-board failures from the refresh handler', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': FEED_BOARDS_PAYLOAD,
+      '/feed/board.json?board=board-2026-09': BOARD_2026_09_PAYLOAD,
+    })
+    const { context } = makeContext()
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const syncBoardsConfig = context.registerRefresh.mock.calls.find(c => c[0] === 'ai-catalyst:sync-boards')[1]
+
+    const result = await syncBoardsConfig.handler()
+
+    expect(result).toMatchObject({
+      status: 'success',
+      synced: 1,
+      total: 2,
+      failed: [{ board: 'board-2026-10', error: expect.stringContaining('unknown board') }],
+    })
+    expect(errSpy).toHaveBeenCalledWith(
+      '[ai-catalyst:boards] Board sync failures:',
+      [{ board: 'board-2026-10', error: expect.stringContaining('unknown board') }],
+    )
+    errSpy.mockRestore()
   })
 
   it('skips syncing when no feed token is configured', async () => {

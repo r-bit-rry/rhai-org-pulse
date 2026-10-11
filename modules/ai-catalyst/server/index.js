@@ -265,18 +265,19 @@ module.exports = function registerRoutes(router, context) {
 
       const existingIndex = await readIndex();
       const existingMonths = new Set((existingIndex.boards || []).map(b => b.month));
+      const failed = [];
       let syncCount = 0;
 
       for (const boardName of boardNames) {
         const month = boardName.replace('board-', '');
-
-        const payload = await client.getBoard(boardName);
-        const candidates = parseBoardRows(payload.rows);
-        await writeToStorage(`${STORAGE_PREFIX}/boards/${month}.json`, candidates);
-        syncCount++;
-
-        if (!existingMonths.has(month)) {
+        try {
+          const payload = await client.getBoard(boardName);
+          const candidates = parseBoardRows(payload.rows);
+          await writeToStorage(`${STORAGE_PREFIX}/boards/${month}.json`, candidates);
+          syncCount++;
           existingMonths.add(month);
+        } catch (err) {
+          failed.push({ board: boardName, error: err.message || String(err) });
         }
       }
 
@@ -292,7 +293,7 @@ module.exports = function registerRoutes(router, context) {
 
       await writeToStorage(INDEX_PATH, { boards, lastSynced: new Date().toISOString() });
       lastSyncTime = new Date().toISOString();
-      return { synced: syncCount, total: boardNames.length };
+      return { synced: syncCount, failed, total: boardNames.length };
     } finally {
       syncRunning = false;
     }
@@ -732,6 +733,9 @@ module.exports = function registerRoutes(router, context) {
         if (DEMO_MODE) return { status: 'skipped', reason: 'demo mode' };
         if (!(await isConfigured())) return { status: 'skipped', reason: 'not configured' };
         const result = await syncBoards();
+        if (result.failed && result.failed.length) {
+          console.error('[ai-catalyst:boards] Board sync failures:', result.failed);
+        }
         return { status: 'success', ...result };
       }
     });
