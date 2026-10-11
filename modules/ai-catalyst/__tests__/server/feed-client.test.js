@@ -75,7 +75,18 @@ describe('createFeedClient', () => {
     expect(err).toBeInstanceOf(FeedError);
     expect(err.status).toBe(404);
     expect(err.message).toContain('unknown board');
+    expect(err.message).toContain('1 known');
     expect(err.body).toEqual({ error: 'unknown board', known: ['board-2026-09'] });
+  });
+
+  it('falls back to a generic 404 message when the body carries no error', async () => {
+    const fetchFn = vi.fn(async () => ({ ok: false, status: 404, text: async () => '' }));
+    const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
+
+    const err = await client.getShowcase().catch(e => e);
+    expect(err).toBeInstanceOf(FeedError);
+    expect(err.status).toBe(404);
+    expect(err.message).toContain('not found at /feed/showcase.json');
   });
 
   it('maps network failures to an actionable message', async () => {

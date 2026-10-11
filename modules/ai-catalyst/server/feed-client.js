@@ -64,7 +64,14 @@ function createFeedClient({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetc
         throw new FeedError('unauthorized — check POC_EXPLORER_FEED_TOKEN', { status: 401, body });
       }
       if (response.status === 404) {
-        throw new FeedError(`unknown board/iteration at ${path}`, { status: 404, body });
+        let message = `not found at ${path}`;
+        if (body && typeof body.error === 'string' && body.error) {
+          message = body.error;
+        }
+        if (body && Array.isArray(body.known)) {
+          message += ` (${body.known.length} known)`;
+        }
+        throw new FeedError(message, { status: 404, body });
       }
       if (!response.ok) {
         throw new FeedError(`POC Explorer feed request failed with HTTP ${response.status} at ${path}`, { status: response.status, body });
