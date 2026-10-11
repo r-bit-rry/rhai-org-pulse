@@ -1,6 +1,115 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 
 const registerRoutes = (await import('../../server/index.js')).default
+
+const FEED_BOARDS_PAYLOAD = {
+  boards: ['board-2026-09', 'board-2026-10'],
+}
+
+const BOARD_2026_09_PAYLOAD = {
+  kind: 'board',
+  name: 'board-2026-09',
+  count: 2,
+  columns: ['title', 'unique_id', 'capability_labels', 'gpu_required', 'impact_score'],
+  rows: [
+    {
+      title: 'Agent Framework',
+      unique_id: 'org/agent-framework',
+      link: 'https://github.com/org/agent-framework',
+      item_type: 'repo',
+      source: 'github',
+      sources: 'github, hn',
+      category: 'agentic-ai',
+      capability_labels: 'agents, kubernetes',
+      red_hat_stack: 'OpenShift AI, vLLM',
+      impact_score: '9',
+      feasibility_score: '7.5',
+      stars: '1137',
+      contributors: '6',
+      gpu_required: 'yes',
+      has_dockerfile: 'yes',
+      board_passes_gate: 'yes',
+      board_feasibility_estimated: 'no',
+      vram_gb: '24',
+      pm_decision: 'Approve(mock-reviewer)',
+      pm_review_history: JSON.stringify([{ reviewer: 'mock-reviewer', decision: 'Approve' }]),
+    },
+    {
+      title: 'Legacy Pipe Era Entry',
+      unique_id: 'org/pipe-era',
+      capability_labels: 'agents|kubernetes',
+      gpu_required: 'no',
+      impact_score: '',
+      pm_review_history: '',
+    },
+    { title: '', unique_id: '', impact_score: '' },
+  ],
+}
+
+const BOARD_2026_10_PAYLOAD = {
+  kind: 'board',
+  name: 'board-2026-10',
+  count: 1,
+  columns: ['title', 'unique_id'],
+  rows: [
+    { title: 'October Entry', unique_id: 'org/october', gpu_required: 'no' },
+  ],
+}
+
+function jsonResponse(status, body) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => JSON.stringify(body),
+  }
+}
+
+function stubFeedFeed(responses, { url = 'https://pocexplorer.redhataicatalyst.com', token = 'token-123' } = {}) {
+  const fetchMock = vi.fn(async (requestUrl, options) => {
+    if (!options || options.headers.Authorization !== `Bearer ${token}`) {
+      return jsonResponse(401, { error: 'unauthorized' })
+    }
+    for (const [suffix, body] of Object.entries(responses)) {
+      if (String(requestUrl) === url + suffix) return jsonResponse(200, body)
+    }
+    return jsonResponse(404, { error: 'unknown board', known: ['board-2026-09'] })
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
+function makeStorage(initial = {}) {
+  const map = new Map(Object.entries(initial))
+  return {
+    map,
+    readFromStorage: vi.fn(async key => (map.has(key) ? map.get(key) : null)),
+    writeToStorage: vi.fn(async (key, value) => { map.set(key, value) }),
+  }
+}
+
+function makeContext(overrides = {}) {
+  const storage = overrides.storage || makeStorage()
+  const handlers = {}
+  const router = {
+    get: vi.fn((path, ...args) => { handlers[path] = args.at(-1) }),
+    post: vi.fn((path, ...args) => { handlers[path] = args.at(-1) }),
+  }
+  const context = {
+    storage,
+    requireAuth: vi.fn((req, res, next) => next()),
+    requireAdmin: vi.fn((req, res, next) => next()),
+    requireScope: vi.fn(() => vi.fn((req, res, next) => next())),
+    resolveSecret: vi.fn(),
+    secrets: { POC_EXPLORER_FEED_TOKEN: 'token-123' },
+    registerScopes: vi.fn(),
+    registerRefresh: vi.fn(),
+    registerDiagnostics: vi.fn(),
+    registerExport: vi.fn(),
+    ...overrides.context,
+  }
+  registerRoutes(router, context)
+  return { handlers, context, storage }
+}
 
 describe('ai-catalyst server module', () => {
   it('exports a function', () => {
@@ -243,5 +352,182 @@ describe('ai-catalyst server module', () => {
       ])
     }))
     expect(showcaseResponse.json.mock.calls[0][0].pillars).toHaveLength(3)
+  })
+})
+
+describe('ai-catalyst board sync via POC Explorer feed', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('syncs boards and adapts stringified feed rows to the camelCase contract', async () => {
+    const fetchMock = stubFeedFeed({
+      '/feed/boards.json': FEED_BOARDS_PAYLOAD,
+      '/feed/board.json?board=board-2026-09': BOARD_2026_09_PAYLOAD,
+      '/feed/board.json?board=board-2026-10': BOARD_2026_10_PAYLOAD,
+    })
+    const { handlers, storage } = makeContext()
+
+    const res = { json: vi.fn(), status: vi.fn() }
+    await handlers['/sync']({}, res)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://pocexplorer.redhataicatalyst.com/feed/boards.json',
+      expect.objectContaining({ headers: { Authorization: 'Bearer token-123' } })
+    )
+    expect(res.status).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok', synced: 2, total: 2 }))
+
+    const september = storage.map.get('ai-catalyst/boards/2026-09.json')
+    expect(september).toHaveLength(2)
+
+    expect(september[0]).toMatchObject({
+      title: 'Agent Framework',
+      uniqueId: 'org/agent-framework',
+      itemType: 'repo',
+      sources: ['github', 'hn'],
+      capabilityLabels: ['agents', 'kubernetes'],
+      redHatStack: ['OpenShift AI', 'vLLM'],
+      impactScore: 9,
+      feasibilityScore: 7.5,
+      stars: 1137,
+      contributors: 6,
+      gpuRequired: true,
+      hasDockerfile: true,
+      boardPassesGate: true,
+      boardFeasibilityEstimated: false,
+      vramGb: 24,
+      pmReviewHistory: [{ reviewer: 'mock-reviewer', decision: 'Approve' }],
+    })
+
+    expect(september[1]).toMatchObject({
+      capabilityLabels: ['agents', 'kubernetes'],
+      gpuRequired: false,
+      impactScore: null,
+      pmReviewHistory: [],
+    })
+
+    expect(storage.map.get('ai-catalyst/boards/2026-10.json')).toHaveLength(1)
+
+    const index = storage.map.get('ai-catalyst/index.json')
+    expect(index.boards.map(b => b.month)).toEqual(['2026-10', '2026-09'])
+    expect(index.boards[1]).toMatchObject({ month: '2026-09', candidateCount: 2 })
+    expect(index.boards[1].lastSynced).toEqual(expect.any(String))
+  })
+
+  it('keeps previously synced months in the index', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': { boards: ['board-2026-10'] },
+      '/feed/board.json?board=board-2026-10': BOARD_2026_10_PAYLOAD,
+    })
+    const { handlers, storage } = makeContext({
+      storage: makeStorage({
+        'ai-catalyst/index.json': {
+          boards: [{ month: '2026-09', candidateCount: 2, lastSynced: '2026-09-16T10:00:00Z' }],
+        },
+        'ai-catalyst/boards/2026-09.json': [{ title: 'Old' }],
+      }),
+    })
+
+    const res = { json: vi.fn(), status: vi.fn() }
+    await handlers['/sync']({}, res)
+
+    const index = storage.map.get('ai-catalyst/index.json')
+    expect(index.boards.map(b => b.month)).toEqual(['2026-10', '2026-09'])
+  })
+
+  it('surfaces an actionable error on 401 responses', async () => {
+    stubFeedFeed({})
+    const { handlers } = makeContext({ context: { secrets: { POC_EXPLORER_FEED_TOKEN: 'bad-token' } } })
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(res.status).toHaveBeenCalledWith(500)
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'Sync failed: unauthorized — check POC_EXPLORER_FEED_TOKEN'
+    })
+  })
+
+  it('surfaces unknown board errors', async () => {
+    stubFeedFeed({ '/feed/boards.json': { boards: ['board-1999-01'] } })
+    const { handlers } = makeContext()
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(res.status).toHaveBeenCalledWith(500)
+    expect(res.json).toHaveBeenCalledWith({
+      error: expect.stringContaining('unknown board')
+    })
+  })
+
+  it('skips syncing when no feed token is configured', async () => {
+    const fetchMock = stubFeedFeed({})
+    const { handlers } = makeContext({ context: { secrets: {} } })
+
+    const res = { json: vi.fn(), status: vi.fn() }
+    await handlers['/sync']({}, res)
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok', skipped: true }))
+  })
+
+  it('reports feed configuration status', async () => {
+    const { handlers } = makeContext()
+
+    const res = { json: vi.fn(), status: vi.fn() }
+    await handlers['/config']({}, res)
+
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ configured: true }))
+  })
+
+  it('reports unconfigured status without a token', async () => {
+    const { handlers } = makeContext({ context: { secrets: {} } })
+
+    const res = { json: vi.fn(), status: vi.fn() }
+    await handlers['/config']({}, res)
+
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ configured: false }))
+  })
+
+  it('saves and reloads the board feed URL override', async () => {
+    const { handlers } = makeContext()
+
+    const saveRes = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/board-config'](
+      { body: { feedUrl: 'https://staging.pocexplorer.example.test' } },
+      saveRes
+    )
+    expect(saveRes.json).toHaveBeenCalledWith({ status: 'saved' })
+    expect(handlers).toBeDefined()
+
+    const { handlers: reloaded } = makeContext({
+      storage: makeStorage({
+        'ai-catalyst/board-config.json': { feedUrl: 'https://staging.pocexplorer.example.test' },
+      }),
+    })
+    const fetchMock = stubFeedFeed(
+      { '/feed/boards.json': { boards: [] } },
+      { url: 'https://staging.pocexplorer.example.test' }
+    )
+    const res = { json: vi.fn(), status: vi.fn() }
+    await reloaded['/sync']({}, res)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://staging.pocexplorer.example.test/feed/boards.json',
+      expect.anything()
+    )
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok', synced: 0 }))
+  })
+
+  it('rejects non-string feed URLs in board config', async () => {
+    const { handlers } = makeContext()
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/board-config']({ body: { feedUrl: 123 } }, res)
+
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(res.json).toHaveBeenCalledWith({ error: 'feedUrl must be a string' })
   })
 })

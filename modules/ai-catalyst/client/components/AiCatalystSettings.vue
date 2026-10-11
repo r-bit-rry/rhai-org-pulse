@@ -113,7 +113,7 @@ onMounted(() => {
           <div class="flex items-center gap-2">
             <span :class="['w-2 h-2 rounded-full', config.configured ? 'bg-green-500' : 'bg-red-500']"></span>
             <span class="text-sm text-gray-700 dark:text-gray-300">
-              {{ config.configured ? 'Connected to POC Explorer Sheet' : 'Not configured' }}
+              {{ config.configured ? 'Connected to POC Explorer feed' : 'Not configured' }}
             </span>
           </div>
 
@@ -131,15 +131,15 @@ onMounted(() => {
 
         <template v-if="boardConfig">
           <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Google Spreadsheet ID</label>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">POC Explorer Feed URL</label>
             <input
-              v-model="boardConfig.sheetId"
+              v-model="boardConfig.feedUrl"
               type="text"
-              placeholder="e.g. 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
+              placeholder="https://pocexplorer.redhataicatalyst.com (default)"
               class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm bg-white dark:bg-gray-800 dark:text-gray-300 placeholder-gray-400 dark:placeholder-gray-500"
             />
             <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">
-              The ID from the Google Sheets URL. The sheet must be shared with the Google service account.
+              Optional override of the POC Explorer feed base URL. The POC_EXPLORER_FEED_TOKEN secret is required for syncing.
             </p>
           </div>
 
@@ -168,15 +168,15 @@ onMounted(() => {
 
       <template v-else-if="showcaseConfig">
         <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Google Spreadsheet ID</label>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">POC Explorer Feed URL</label>
           <input
-            v-model="showcaseConfig.sheetId"
+            v-model="showcaseConfig.feedUrl"
             type="text"
-            placeholder="e.g. 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
+            placeholder="https://pocexplorer.redhataicatalyst.com (default)"
             class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm bg-white dark:bg-gray-800 dark:text-gray-300 placeholder-gray-400 dark:placeholder-gray-500"
           />
           <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">
-            The ID from the Google Sheets URL. The sheet must be shared with the Google service account.
+            Optional override of the POC Explorer feed base URL used for showcase data.
           </p>
         </div>
 

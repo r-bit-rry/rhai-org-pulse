@@ -2654,8 +2654,8 @@ The dataset is four separate JSON files under `data/system-health/test-execution
 ## AI Catalyst Monthly Board — `data/ai-catalyst/boards/{YYYY-MM}.json`
 
 The monthly board is a JSON array written by the AI Catalyst board sync. Each
-element is one candidate parsed from a `board-YYYY-MM` Google Sheet tab. The
-`category` value is a stable strategy-pillar key, not a display label; clients
+element is one candidate parsed from the POC Explorer feed's `board-YYYY-MM`
+board. The `category` value is a stable strategy-pillar key, not a display label; clients
 resolve its title, short title, and color from the shared Showcase pillar
 registry below.
 
@@ -2705,13 +2705,13 @@ immutable historical record.
 
 Repository files under `fixtures/ai-catalyst/` are deterministic mock data for
 demo mode and tests; production deployments read the corresponding board rows
-from Google Sheets during sync.
+from the POC Explorer feed during sync.
 
 ---
 
 ## AI Catalyst Showcase Data — `data/ai-catalyst/showcase/showcase-data.json`
 
-Synced from a Google Sheet via the ai-catalyst module (showcase feature). Contains all showcase entries and strategy pillar definitions.
+Synced from the POC Explorer feed via the ai-catalyst module (showcase feature). Contains all showcase entries and strategy pillar definitions.
 
 ```json
 {
