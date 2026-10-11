@@ -88,6 +88,19 @@ describe('createFeedClient', () => {
     expect(err.message).toContain('POC_EXPLORER_FEED_URL');
   });
 
+  it('times out when the response body stalls after headers arrive', async () => {
+    const fetchFn = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: () => new Promise(() => {}),
+    }));
+    const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn, timeoutMs: 20 });
+
+    const err = await client.listBoards().catch(e => e);
+    expect(err).toBeInstanceOf(FeedError);
+    expect(err.message).toContain('timed out');
+  }, 500);
+
   it('times out long-running requests', async () => {
     const fetchFn = vi.fn((url, options) => new Promise((_, reject) => {
       options.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));

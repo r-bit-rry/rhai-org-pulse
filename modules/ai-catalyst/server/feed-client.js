@@ -19,6 +19,20 @@ function parseJsonBody(text) {
 }
 
 /**
+ * Reject with an AbortError when the signal fires, so a stalled response
+ * body cannot outlive the configured timeout.
+ */
+function abortRejection(signal) {
+  return new Promise((_, reject) => {
+    signal.addEventListener('abort', () => {
+      const err = new Error('The operation was aborted');
+      err.name = 'AbortError';
+      reject(err);
+    });
+  });
+}
+
+/**
  * HTTP client for the POC Explorer machine feeds (ADR-077 producer side).
  * All endpoints require `Authorization: Bearer <token>` and return JSON.
  */
@@ -34,15 +48,33 @@ function createFeedClient({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetc
     }
 
     const url = root + path;
-    let response;
     const controller = new AbortController();
+    // The timer stays armed until the response body has been consumed —
+    // clearing it after headers arrive would let a stalled body hang forever.
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      response = await fetchFn(url, {
+      const response = await fetchFn(url, {
         headers: { Authorization: `Bearer ${token}` },
         signal: controller.signal,
       });
+      const text = await Promise.race([response.text(), abortRejection(controller.signal)]);
+      const body = parseJsonBody(text);
+
+      if (response.status === 401) {
+        throw new FeedError('unauthorized — check POC_EXPLORER_FEED_TOKEN', { status: 401, body });
+      }
+      if (response.status === 404) {
+        throw new FeedError(`unknown board/iteration at ${path}`, { status: 404, body });
+      }
+      if (!response.ok) {
+        throw new FeedError(`POC Explorer feed request failed with HTTP ${response.status} at ${path}`, { status: response.status, body });
+      }
+      if (body === null || typeof body !== 'object') {
+        throw new FeedError(`POC Explorer feed returned non-JSON response at ${path}`, { status: response.status });
+      }
+      return body;
     } catch (err) {
+      if (err instanceof FeedError) throw err;
       if (err && err.name === 'AbortError') {
         throw new FeedError(`POC Explorer feed request timed out after ${Math.round(timeoutMs / 1000)}s: ${url}`, { cause: err });
       }
@@ -53,23 +85,6 @@ function createFeedClient({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetc
     } finally {
       clearTimeout(timer);
     }
-
-    const text = await response.text();
-    const body = parseJsonBody(text);
-
-    if (response.status === 401) {
-      throw new FeedError('unauthorized — check POC_EXPLORER_FEED_TOKEN', { status: 401, body });
-    }
-    if (response.status === 404) {
-      throw new FeedError(`unknown board/iteration at ${path}`, { status: 404, body });
-    }
-    if (!response.ok) {
-      throw new FeedError(`POC Explorer feed request failed with HTTP ${response.status} at ${path}`, { status: response.status, body });
-    }
-    if (body === null || typeof body !== 'object') {
-      throw new FeedError(`POC Explorer feed returned non-JSON response at ${path}`, { status: response.status });
-    }
-    return body;
   }
 
   return {
