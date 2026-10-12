@@ -760,6 +760,9 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
   })
 
   it('rejects stored loopback board feed URLs unless POC_EXPLORER_ALLOW_LOOPBACK is set', async () => {
+    // Hermetic: a developer who exports the flag for local spec runs must
+    // not flip this test.
+    vi.stubEnv('POC_EXPLORER_ALLOW_LOOPBACK', '')
     const fetchMock = stubFeedFeed({})
     const { handlers } = makeContext({
       storage: makeStorage({
