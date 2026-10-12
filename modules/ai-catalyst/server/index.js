@@ -170,6 +170,10 @@ module.exports = function registerRoutes(router, context) {
   let lastSyncTime = null;
   let syncRunning = false;
 
+  // Loopback feed URLs are opt-in: without this flag the token never goes to
+  // a local listener, so stored settings cannot exfiltrate it on-loopback.
+  const allowLoopback = process.env.POC_EXPLORER_ALLOW_LOOPBACK === '1';
+
   function getFeedToken() {
     return (secrets && secrets.POC_EXPLORER_FEED_TOKEN) || context.resolveSecret('POC_EXPLORER_FEED_TOKEN') || '';
   }
@@ -185,8 +189,8 @@ module.exports = function registerRoutes(router, context) {
   }
 
   // Origins the feed token may be sent to: the two documented defaults plus
-  // env-configured URLs (machine-level operator approval). Loopback is
-  // allowed structurally by the feed client, so local stubs work on any port.
+  // env-configured URLs (machine-level operator approval). Loopback is only
+  // reachable at all when POC_EXPLORER_ALLOW_LOOPBACK=1 is set.
   function getAllowedFeedOrigins() {
     const origins = new Set();
     for (const url of [
@@ -278,6 +282,7 @@ module.exports = function registerRoutes(router, context) {
         baseUrl: await getBoardFeedUrl(),
         token: getFeedToken(),
         allowedOrigins: getAllowedFeedOrigins(),
+        allowLoopback,
       });
 
       const boardNames = (await client.listBoards()).filter(n => BOARD_NAME_RE.test(n));
@@ -597,7 +602,7 @@ module.exports = function registerRoutes(router, context) {
     try {
       if (await isConfigured()) {
         return normalizeShowcaseData(
-          await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins()),
+          await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback),
         );
       }
     } catch (err) {
@@ -658,7 +663,7 @@ module.exports = function registerRoutes(router, context) {
       if (DEMO_MODE || !(await isConfigured())) {
         data = await loadShowcaseDemoData();
       } else {
-        data = await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins());
+        data = await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback);
       }
 
       data = normalizeShowcaseData(data);
@@ -703,7 +708,7 @@ module.exports = function registerRoutes(router, context) {
       if (DEMO_MODE || !(await isConfigured())) {
         data = await loadShowcaseDemoData();
       } else {
-        data = await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins());
+        data = await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback);
       }
 
       data = normalizeShowcaseData(data);
@@ -744,7 +749,7 @@ module.exports = function registerRoutes(router, context) {
 
     try {
       clearShowcaseCache();
-      const data = await fetchShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins());
+      const data = await fetchShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback);
       res.json({
         status: 'refreshed',
         entries: data.entries.length,
@@ -788,7 +793,7 @@ module.exports = function registerRoutes(router, context) {
       handler: async function() {
         if (DEMO_MODE || !(await isConfigured())) return;
         clearShowcaseCache();
-        await fetchShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins());
+        await fetchShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback);
       },
     });
   }

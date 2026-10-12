@@ -205,8 +205,8 @@ function normalizeShowcaseData(data) {
   };
 }
 
-async function fetchShowcaseData(baseUrl, token, storage, allowedOrigins) {
-  const client = createFeedClient({ baseUrl, token, allowedOrigins });
+async function fetchShowcaseData(baseUrl, token, storage, allowedOrigins, allowLoopback) {
+  const client = createFeedClient({ baseUrl, token, allowedOrigins, allowLoopback });
   const payload = await client.getShowcase();
 
   const entries = (Array.isArray(payload.showcase_entries) ? payload.showcase_entries : [])
@@ -233,13 +233,13 @@ async function fetchShowcaseData(baseUrl, token, storage, allowedOrigins) {
   return result;
 }
 
-async function getShowcaseData(baseUrl, token, storage, allowedOrigins) {
+async function getShowcaseData(baseUrl, token, storage, allowedOrigins, allowLoopback) {
   if (_cache && Date.now() - _cache.ts < CACHE_TTL) {
     return _cache.data;
   }
 
   try {
-    return await fetchShowcaseData(baseUrl, token, storage, allowedOrigins);
+    return await fetchShowcaseData(baseUrl, token, storage, allowedOrigins, allowLoopback);
   } catch (err) {
     if (_cache) {
       console.error('[ai-catalyst:showcase] Feed fetch failed, using cached data:', err.message);

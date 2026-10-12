@@ -1,7 +1,8 @@
 const DEFAULT_TIMEOUT_MS = 30000;
 
-// Loopback is the standard dev/test carve-out: a token sent to loopback
-// stays on the machine, so plain HTTP is tolerated there (and only there).
+// Loopback is the dev/test carve-out: a token sent to loopback stays on the
+// machine. It is strictly opt-in via POC_EXPLORER_ALLOW_LOOPBACK=1 so a
+// stored settings URL can never aim the production token at a local listener.
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 class FeedError extends Error {
@@ -38,11 +39,11 @@ function abortRejection(signal) {
 
 /**
  * Validate the feed destination BEFORE the bearer token leaves the process:
- * HTTPS only (except loopback), and — when callers pass an allowlist — only
- * operator-approved origins. A URL from stored module settings must land in
- * that set or the request never happens.
+ * HTTPS only (except opt-in loopback), and — when callers pass an allowlist —
+ * only operator-approved origins. A URL from stored module settings must land
+ * in that set or the request never happens.
  */
-function validateFeedDestination(root, allowedOrigins) {
+function validateFeedDestination(root, allowedOrigins, allowLoopback) {
   let parsed;
   try {
     parsed = new URL(root);
@@ -51,6 +52,9 @@ function validateFeedDestination(root, allowedOrigins) {
   }
 
   const isLoopback = LOOPBACK_HOSTNAMES.has(parsed.hostname);
+  if (isLoopback && !allowLoopback) {
+    throw new FeedError(`POC Explorer feed URL points at loopback, which is only allowed when POC_EXPLORER_ALLOW_LOOPBACK=1: ${root}`);
+  }
   if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLoopback)) {
     throw new FeedError(`POC Explorer feed URL must use HTTPS (plain HTTP is only allowed on loopback): ${root}`);
   }
@@ -66,7 +70,7 @@ function validateFeedDestination(root, allowedOrigins) {
  * HTTP client for the POC Explorer machine feeds (ADR-077 producer side).
  * All endpoints require `Authorization: Bearer <token>` and return JSON.
  */
-function createFeedClient({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetchFn = globalThis.fetch, allowedOrigins }) {
+function createFeedClient({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetchFn = globalThis.fetch, allowedOrigins, allowLoopback = false }) {
   const root = String(baseUrl || '').replace(/\/+$/, '');
 
   async function request(path) {
@@ -76,7 +80,7 @@ function createFeedClient({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetc
     if (!root) {
       throw new FeedError('POC Explorer feed URL is not configured — set POC_EXPLORER_FEED_URL');
     }
-    validateFeedDestination(root, allowedOrigins);
+    validateFeedDestination(root, allowedOrigins, allowLoopback);
 
     const url = root + path;
     const controller = new AbortController();

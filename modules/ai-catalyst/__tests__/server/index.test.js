@@ -365,6 +365,7 @@ describe('ai-catalyst server module', () => {
 describe('ai-catalyst board sync via POC Explorer feed', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
   })
 
   it('syncs boards and adapts stringified feed rows to the camelCase contract', async () => {
@@ -672,7 +673,8 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('honors stored loopback board feed URLs', async () => {
+  it('honors stored loopback board feed URLs when POC_EXPLORER_ALLOW_LOOPBACK is set', async () => {
+    vi.stubEnv('POC_EXPLORER_ALLOW_LOOPBACK', '1')
     const fetchMock = stubFeedFeed(
       { '/feed/boards.json': { boards: [] } },
       { url: 'http://127.0.0.1:4567' }
@@ -691,6 +693,24 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
       expect.anything()
     )
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok', synced: 0 }))
+  })
+
+  it('rejects stored loopback board feed URLs unless POC_EXPLORER_ALLOW_LOOPBACK is set', async () => {
+    const fetchMock = stubFeedFeed({})
+    const { handlers } = makeContext({
+      storage: makeStorage({
+        'ai-catalyst/board-config.json': { feedUrl: 'http://127.0.0.1:4567' },
+      }),
+    })
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(res.status).toHaveBeenCalledWith(500)
+    expect(res.json).toHaveBeenCalledWith({
+      error: expect.stringContaining('POC_EXPLORER_ALLOW_LOOPBACK'),
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('rejects non-string feed URLs in board config', async () => {

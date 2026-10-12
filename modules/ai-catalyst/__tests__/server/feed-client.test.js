@@ -190,28 +190,38 @@ describe('createFeedClient destination validation', () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  it('allows HTTP on localhost', async () => {
+  it('allows HTTP on localhost when allowLoopback is opted in', async () => {
     const fetchFn = vi.fn(async () => jsonResponse(200, { boards: [] }));
-    const client = createFeedClient({ baseUrl: 'http://localhost:3001', token: 't', fetchFn });
+    const client = createFeedClient({ baseUrl: 'http://localhost:3001', token: 't', fetchFn, allowLoopback: true });
 
     await client.listBoards();
     expect(fetchFn).toHaveBeenCalledWith('http://localhost:3001/feed/boards.json', expect.anything());
   });
 
-  it('allows HTTP on 127.0.0.1', async () => {
+  it('allows HTTP on 127.0.0.1 when allowLoopback is opted in', async () => {
     const fetchFn = vi.fn(async () => jsonResponse(200, { boards: [] }));
-    const client = createFeedClient({ baseUrl: 'http://127.0.0.1:3001', token: 't', fetchFn });
+    const client = createFeedClient({ baseUrl: 'http://127.0.0.1:3001', token: 't', fetchFn, allowLoopback: true });
 
     await client.listBoards();
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
-  it('allows HTTP on [::1]', async () => {
+  it('allows HTTP on [::1] when allowLoopback is opted in', async () => {
     const fetchFn = vi.fn(async () => jsonResponse(200, { boards: [] }));
-    const client = createFeedClient({ baseUrl: 'http://[::1]:3001', token: 't', fetchFn });
+    const client = createFeedClient({ baseUrl: 'http://[::1]:3001', token: 't', fetchFn, allowLoopback: true });
 
     await client.listBoards();
     expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects loopback URLs before fetching unless allowLoopback is opted in', async () => {
+    const fetchFn = vi.fn();
+    const client = createFeedClient({ baseUrl: 'http://127.0.0.1:9090', token: 't', fetchFn });
+
+    const err = await client.listBoards().catch(e => e);
+    expect(err).toBeInstanceOf(FeedError);
+    expect(err.message).toContain('POC_EXPLORER_ALLOW_LOOPBACK');
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 
   it('rejects URLs whose origin is not in allowedOrigins before fetching', async () => {
@@ -250,6 +260,7 @@ describe('createFeedClient destination validation', () => {
       token: 't',
       fetchFn,
       allowedOrigins: ['https://feed.example.test'],
+      allowLoopback: true,
     });
 
     await client.listBoards();
