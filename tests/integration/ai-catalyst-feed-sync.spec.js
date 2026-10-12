@@ -17,7 +17,10 @@ const { setupErrorTracking, logCapturedErrors } = require('./helpers');
  * Requires a writable backend booted WITHOUT demo mode and with:
  *   POC_EXPLORER_FEED_TOKEN=<any value> POC_EXPLORER_ALLOW_LOOPBACK=1
  * Against demo-mode or unconfigured deployments the suite skips itself via
- * the /config probe (CI's plain `make test-module MODULE=ai-catalyst` path).
+ * the /config probe (CI's plain `make test-module MODULE=ai-catalyst` path,
+ * which runs without the CI env var). Under CI (`CI=1`, the dedicated
+ * `make test-ai-catalyst-feed-sync` path) an unrunnable backend fails the
+ * suite instead of skipping — a zero-test green run must be impossible.
  *
  * Tag: @ai-catalyst
  * Usage: npx playwright test tests/integration/ai-catalyst-feed-sync.spec.js --workers=1
@@ -165,10 +168,19 @@ test.describe('AI Catalyst feed sync (local stub) @ai-catalyst', () => {
   });
 
   test.beforeEach(async () => {
-    test.skip(
-      !environment || environment.demoMode || !environment.configured,
-      'feed sync tests need a writable (non-demo) backend with POC_EXPLORER_FEED_TOKEN configured',
-    );
+    const unrunnable = !environment || environment.demoMode || !environment.configured;
+    if (unrunnable) {
+      if (process.env.CI) {
+        // A skip exits 0, and test.fail() only marks an *expected* failure
+        // (also exit 0) — failing the hook is what makes CI actually red
+        // when this suite cannot run.
+        throw new Error(
+          'feed-sync tests cannot run under CI: the backend is demo-mode or unconfigured '
+          + `(${JSON.stringify(environment)}) — make test-ai-catalyst-feed-sync must boot a non-demo backend with POC_EXPLORER_FEED_TOKEN`,
+        );
+      }
+      test.skip(true, 'feed sync tests need a writable (non-demo) backend with POC_EXPLORER_FEED_TOKEN configured');
+    }
     stub = await startFeedStub();
   });
 
