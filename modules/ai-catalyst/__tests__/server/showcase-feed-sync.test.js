@@ -309,6 +309,16 @@ describe('fetchShowcaseData', () => {
       .rejects.toThrow('unauthorized — check POC_EXPLORER_FEED_TOKEN');
   });
 
+  it('rejects unapproved origins before fetching when allowedOrigins is given', async () => {
+    const fetchMock = stubFeed({});
+    const storage = { writeToStorage: vi.fn(async () => {}), readFromStorage: vi.fn(async () => null) };
+
+    await expect(
+      fetchShowcaseData('https://evil.example.test', 'token-123', storage, ['https://feed.example.test']),
+    ).rejects.toThrow('not an approved origin');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('serves repeated reads from the TTL cache', async () => {
     const fetchMock = stubFeed({ '/feed/showcase.json': FEED_PAYLOAD });
     const storage = { writeToStorage: vi.fn(async () => {}), readFromStorage: vi.fn(async () => null) };

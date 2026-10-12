@@ -184,6 +184,27 @@ module.exports = function registerRoutes(router, context) {
     return configured || (secrets && secrets.POC_EXPLORER_SHOWCASE_FEED_URL) || DEFAULT_SHOWCASE_FEED_URL;
   }
 
+  // Origins the feed token may be sent to: the two documented defaults plus
+  // env-configured URLs (machine-level operator approval). Loopback is
+  // allowed structurally by the feed client, so local stubs work on any port.
+  function getAllowedFeedOrigins() {
+    const origins = new Set();
+    for (const url of [
+      DEFAULT_FEED_URL,
+      DEFAULT_SHOWCASE_FEED_URL,
+      secrets && secrets.POC_EXPLORER_FEED_URL,
+      secrets && secrets.POC_EXPLORER_SHOWCASE_FEED_URL,
+    ]) {
+      if (!url) continue;
+      try {
+        origins.add(new URL(url).origin);
+      } catch {
+        // Malformed env URLs fall through to the feed client's own validation.
+      }
+    }
+    return [...origins];
+  }
+
   async function isConfigured() {
     return !!getFeedToken();
   }
@@ -256,6 +277,7 @@ module.exports = function registerRoutes(router, context) {
       const client = createFeedClient({
         baseUrl: await getBoardFeedUrl(),
         token: getFeedToken(),
+        allowedOrigins: getAllowedFeedOrigins(),
       });
 
       const boardNames = (await client.listBoards()).filter(n => BOARD_NAME_RE.test(n));
@@ -265,7 +287,9 @@ module.exports = function registerRoutes(router, context) {
       }
 
       const existingIndex = await readIndex();
-      const existingMonths = new Set((existingIndex.boards || []).map(b => b.month));
+      const previousByMonth = new Map((existingIndex.boards || []).map(b => [b.month, b]));
+      const months = new Set(previousByMonth.keys());
+      const syncedMonths = new Set();
       const failed = [];
       let syncCount = 0;
 
@@ -276,24 +300,34 @@ module.exports = function registerRoutes(router, context) {
           const candidates = parseBoardRows(payload.rows);
           await writeToStorage(`${STORAGE_PREFIX}/boards/${month}.json`, candidates);
           syncCount++;
-          existingMonths.add(month);
+          syncedMonths.add(month);
+          months.add(month);
         } catch (err) {
           failed.push({ board: boardName, error: err.message || String(err) });
         }
       }
 
+      const now = new Date().toISOString();
       const boards = [];
-      for (const month of [...existingMonths].sort().reverse()) {
+      for (const month of [...months].sort().reverse()) {
         const data = await readBoard(month);
         boards.push({
           month,
           candidateCount: Array.isArray(data) ? data.length : 0,
-          lastSynced: new Date().toISOString()
+          // Months that did not sync this run keep their previous timestamp,
+          // so a failed refresh cannot masquerade as a fresh sync.
+          lastSynced: syncedMonths.has(month) ? now : (previousByMonth.get(month) || {}).lastSynced || null
         });
       }
 
-      await writeToStorage(INDEX_PATH, { boards, lastSynced: new Date().toISOString() });
-      lastSyncTime = new Date().toISOString();
+      const runFailed = failed.length > 0;
+      await writeToStorage(INDEX_PATH, {
+        boards,
+        lastSynced: runFailed ? (existingIndex.lastSynced || null) : now
+      });
+      if (!runFailed) {
+        lastSyncTime = now;
+      }
       return { synced: syncCount, failed, total: boardNames.length };
     } finally {
       syncRunning = false;
@@ -563,7 +597,7 @@ module.exports = function registerRoutes(router, context) {
     try {
       if (await isConfigured()) {
         return normalizeShowcaseData(
-          await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage),
+          await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins()),
         );
       }
     } catch (err) {
@@ -624,7 +658,7 @@ module.exports = function registerRoutes(router, context) {
       if (DEMO_MODE || !(await isConfigured())) {
         data = await loadShowcaseDemoData();
       } else {
-        data = await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage);
+        data = await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins());
       }
 
       data = normalizeShowcaseData(data);
@@ -669,7 +703,7 @@ module.exports = function registerRoutes(router, context) {
       if (DEMO_MODE || !(await isConfigured())) {
         data = await loadShowcaseDemoData();
       } else {
-        data = await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage);
+        data = await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins());
       }
 
       data = normalizeShowcaseData(data);
@@ -710,7 +744,7 @@ module.exports = function registerRoutes(router, context) {
 
     try {
       clearShowcaseCache();
-      const data = await fetchShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage);
+      const data = await fetchShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins());
       res.json({
         status: 'refreshed',
         entries: data.entries.length,
@@ -735,7 +769,13 @@ module.exports = function registerRoutes(router, context) {
         if (!(await isConfigured())) return { status: 'skipped', reason: 'not configured' };
         const result = await syncBoards();
         if (result.failed && result.failed.length) {
-          console.error('[ai-catalyst:boards] Board sync failures:', result.failed);
+          // Throwing is the refresh registry's retry mechanism: a returned
+          // value counts as success and would advance lastSuccessfulRun,
+          // silencing retries for a full cadence window.
+          throw new Error(
+            `Board sync failed for ${result.failed.length}/${result.total} boards — `
+            + result.failed.map(f => `${f.board}: ${f.error}`).join('; '),
+          );
         }
         return { status: 'success', ...result };
       }
@@ -748,7 +788,7 @@ module.exports = function registerRoutes(router, context) {
       handler: async function() {
         if (DEMO_MODE || !(await isConfigured())) return;
         clearShowcaseCache();
-        await fetchShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage);
+        await fetchShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins());
       },
     });
   }

@@ -495,28 +495,104 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
     expect(index.boards.map(b => b.month)).toEqual(['2026-09'])
   })
 
-  it('logs and returns per-board failures from the refresh handler', async () => {
+  it('keeps the cached board when board.json returns a malformed 200', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': { boards: ['board-2026-09'] },
+      '/feed/board.json?board=board-2026-09': {},
+    })
+    const cachedBoard = [{ title: 'Cached Entry', uniqueId: 'org/cached' }]
+    const { handlers, storage } = makeContext({
+      storage: makeStorage({
+        'ai-catalyst/index.json': {
+          boards: [{ month: '2026-09', candidateCount: 1, lastSynced: '2026-09-16T10:00:00Z' }],
+          lastSynced: '2026-09-16T10:00:00Z',
+        },
+        'ai-catalyst/boards/2026-09.json': cachedBoard,
+      }),
+    })
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(res.status).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'ok',
+      synced: 0,
+      total: 1,
+      failed: [{ board: 'board-2026-09', error: expect.stringContaining('rows') }],
+    }))
+    expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toEqual(cachedBoard)
+  })
+
+  it('preserves the previous lastSynced for months that fail this run', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': FEED_BOARDS_PAYLOAD,
+      '/feed/board.json?board=board-2026-10': BOARD_2026_10_PAYLOAD,
+    })
+    const { handlers, storage } = makeContext({
+      storage: makeStorage({
+        'ai-catalyst/index.json': {
+          boards: [{ month: '2026-09', candidateCount: 2, lastSynced: '2026-09-16T10:00:00Z' }],
+          lastSynced: '2026-09-16T10:00:00Z',
+        },
+        'ai-catalyst/boards/2026-09.json': [{ title: 'September Entry' }],
+      }),
+    })
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    const index = storage.map.get('ai-catalyst/index.json')
+    expect(index.boards.map(b => b.month)).toEqual(['2026-10', '2026-09'])
+    expect(index.boards[0].lastSynced).toEqual(expect.any(String))
+    expect(index.boards[0].lastSynced).not.toBe('2026-09-16T10:00:00Z')
+    expect(index.boards[1]).toMatchObject({ month: '2026-09', candidateCount: 1 })
+    expect(index.boards[1].lastSynced).toBe('2026-09-16T10:00:00Z')
+    expect(index.lastSynced).toBe('2026-09-16T10:00:00Z')
+  })
+
+  it('stamps a fresh index lastSynced only when every board syncs', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': { boards: ['board-2026-10'] },
+      '/feed/board.json?board=board-2026-10': BOARD_2026_10_PAYLOAD,
+    })
+    const { handlers, storage } = makeContext()
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    const index = storage.map.get('ai-catalyst/index.json')
+    expect(index.lastSynced).toEqual(expect.any(String))
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok', synced: 1, failed: [] }))
+  })
+
+  it('rejects the refresh handler when boards fail so the registry retries', async () => {
     stubFeedFeed({
       '/feed/boards.json': FEED_BOARDS_PAYLOAD,
       '/feed/board.json?board=board-2026-09': BOARD_2026_09_PAYLOAD,
     })
     const { context } = makeContext()
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const syncBoardsConfig = context.registerRefresh.mock.calls.find(c => c[0] === 'ai-catalyst:sync-boards')[1]
 
-    const result = await syncBoardsConfig.handler()
+    await expect(syncBoardsConfig.handler()).rejects.toThrow(
+      'Board sync failed for 1/2 boards — board-2026-10: unknown board (1 known)',
+    )
+  })
 
-    expect(result).toMatchObject({
+  it('returns success from the refresh handler when every board syncs', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': { boards: ['board-2026-09'] },
+      '/feed/board.json?board=board-2026-09': BOARD_2026_09_PAYLOAD,
+    })
+    const { context } = makeContext()
+    const syncBoardsConfig = context.registerRefresh.mock.calls.find(c => c[0] === 'ai-catalyst:sync-boards')[1]
+
+    await expect(syncBoardsConfig.handler()).resolves.toMatchObject({
       status: 'success',
       synced: 1,
-      total: 2,
-      failed: [{ board: 'board-2026-10', error: expect.stringContaining('unknown board') }],
+      total: 1,
+      failed: [],
     })
-    expect(errSpy).toHaveBeenCalledWith(
-      '[ai-catalyst:boards] Board sync failures:',
-      [{ board: 'board-2026-10', error: expect.stringContaining('unknown board') }],
-    )
-    errSpy.mockRestore()
   })
 
   it('skips syncing when no feed token is configured', async () => {
@@ -553,7 +629,7 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
 
     const saveRes = { json: vi.fn(), status: vi.fn().mockReturnThis() }
     await handlers['/board-config'](
-      { body: { feedUrl: 'https://staging.pocexplorer.example.test' } },
+      { body: { feedUrl: 'https://showcase.redhataicatalyst.com' } },
       saveRes
     )
     expect(saveRes.json).toHaveBeenCalledWith({ status: 'saved' })
@@ -561,18 +637,57 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
 
     const { handlers: reloaded } = makeContext({
       storage: makeStorage({
-        'ai-catalyst/board-config.json': { feedUrl: 'https://staging.pocexplorer.example.test' },
+        'ai-catalyst/board-config.json': { feedUrl: 'https://showcase.redhataicatalyst.com' },
       }),
     })
     const fetchMock = stubFeedFeed(
       { '/feed/boards.json': { boards: [] } },
-      { url: 'https://staging.pocexplorer.example.test' }
+      { url: 'https://showcase.redhataicatalyst.com' }
     )
     const res = { json: vi.fn(), status: vi.fn() }
     await reloaded['/sync']({}, res)
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://staging.pocexplorer.example.test/feed/boards.json',
+      'https://showcase.redhataicatalyst.com/feed/boards.json',
+      expect.anything()
+    )
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok', synced: 0 }))
+  })
+
+  it('rejects stored board feed URLs with unapproved origins before fetching', async () => {
+    const fetchMock = stubFeedFeed({})
+    const { handlers } = makeContext({
+      storage: makeStorage({
+        'ai-catalyst/board-config.json': { feedUrl: 'https://evil.example.test' },
+      }),
+    })
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(res.status).toHaveBeenCalledWith(500)
+    expect(res.json).toHaveBeenCalledWith({
+      error: expect.stringContaining('not an approved origin'),
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('honors stored loopback board feed URLs', async () => {
+    const fetchMock = stubFeedFeed(
+      { '/feed/boards.json': { boards: [] } },
+      { url: 'http://127.0.0.1:4567' }
+    )
+    const { handlers } = makeContext({
+      storage: makeStorage({
+        'ai-catalyst/board-config.json': { feedUrl: 'http://127.0.0.1:4567' },
+      }),
+    })
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:4567/feed/boards.json',
       expect.anything()
     )
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok', synced: 0 }))
@@ -657,11 +772,11 @@ describe('ai-catalyst showcase feed URL resolution', () => {
   it('prefers the stored showcase config over the showcase secret', async () => {
     const fetchMock = stubFeedFeed(
       { '/feed/showcase.json': SHOWCASE_FEED_PAYLOAD },
-      { url: 'https://configured-showcase.example.test' }
+      { url: 'https://pocexplorer.redhataicatalyst.com' }
     )
     const { handlers } = makeContext({
       storage: makeStorage({
-        'ai-catalyst/showcase/config.json': { feedUrl: 'https://configured-showcase.example.test' },
+        'ai-catalyst/showcase/config.json': { feedUrl: 'https://pocexplorer.redhataicatalyst.com' },
       }),
       context: {
         secrets: { POC_EXPLORER_FEED_TOKEN: 'token-123', POC_EXPLORER_SHOWCASE_FEED_URL: 'https://showcase-staging.example.test' },
@@ -672,10 +787,29 @@ describe('ai-catalyst showcase feed URL resolution', () => {
     await handlers['/showcase/refresh']({}, res)
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://configured-showcase.example.test/feed/showcase.json',
+      'https://pocexplorer.redhataicatalyst.com/feed/showcase.json',
       expect.anything()
     )
     expect(res.status).not.toHaveBeenCalled()
+  })
+
+  it('rejects stored showcase feed URLs with unapproved origins before fetching', async () => {
+    const fetchMock = stubFeedFeed({})
+    const { handlers } = makeContext({
+      storage: makeStorage({
+        'ai-catalyst/showcase/config.json': { feedUrl: 'https://evil.example.test' },
+      }),
+    })
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/showcase/refresh']({}, res)
+
+    expect(res.status).toHaveBeenCalledWith(500)
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'Failed to refresh from POC Explorer feed',
+      details: expect.stringContaining('not an approved origin'),
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('keeps the board feed on POC_EXPLORER_FEED_URL', async () => {
