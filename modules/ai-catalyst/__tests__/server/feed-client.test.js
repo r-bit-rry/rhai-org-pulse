@@ -153,6 +153,15 @@ describe('createFeedClient', () => {
     expect(err.message).toContain('145');
   });
 
+  it('rejects board.json payloads without a numeric count', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, { rows: [] }));
+    const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
+
+    const err = await client.getBoard('board-2026-09').catch(e => e);
+    expect(err).toBeInstanceOf(FeedError);
+    expect(err.message).toContain('count');
+  });
+
   it('rejects board.json payloads with non-object rows', async () => {
     const fetchFn = vi.fn(async () => jsonResponse(200, { count: 1, rows: ['not-an-object'] }));
     const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
