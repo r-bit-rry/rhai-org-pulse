@@ -142,6 +142,14 @@ function createFeedClient({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetc
       if (!Array.isArray(body.rows)) {
         throw new FeedError('unexpected response shape from /feed/board.json — expected a "rows" array');
       }
+      // A degraded feed can serve a shape-valid empty board; a count that
+      // disagrees with the rows, or non-object rows, must not wipe the cache.
+      if (typeof body.count === 'number' && body.count !== body.rows.length) {
+        throw new FeedError(`unexpected response shape from /feed/board.json — count (${body.count}) does not match rows length (${body.rows.length})`);
+      }
+      if (!body.rows.every(r => r && typeof r === 'object' && !Array.isArray(r))) {
+        throw new FeedError('unexpected response shape from /feed/board.json — "rows" entries must all be objects');
+      }
       return body;
     },
     async getShowcase() {

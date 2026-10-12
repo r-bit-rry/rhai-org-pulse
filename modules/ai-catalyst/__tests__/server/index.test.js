@@ -9,7 +9,7 @@ const FEED_BOARDS_PAYLOAD = {
 const BOARD_2026_09_PAYLOAD = {
   kind: 'board',
   name: 'board-2026-09',
-  count: 2,
+  count: 3,
   columns: ['title', 'unique_id', 'capability_labels', 'gpu_required', 'impact_score'],
   rows: [
     {
@@ -521,6 +521,35 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
       synced: 0,
       total: 1,
       failed: [{ board: 'board-2026-09', error: expect.stringContaining('rows') }],
+    }))
+    expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toEqual(cachedBoard)
+  })
+
+  it('keeps the cached board when board.json reports a count that disagrees with its rows', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': { boards: ['board-2026-09'] },
+      '/feed/board.json?board=board-2026-09': { count: 145, rows: [] },
+    })
+    const cachedBoard = [{ title: 'Cached Entry', uniqueId: 'org/cached' }]
+    const { handlers, storage } = makeContext({
+      storage: makeStorage({
+        'ai-catalyst/index.json': {
+          boards: [{ month: '2026-09', candidateCount: 1, lastSynced: '2026-09-16T10:00:00Z' }],
+          lastSynced: '2026-09-16T10:00:00Z',
+        },
+        'ai-catalyst/boards/2026-09.json': cachedBoard,
+      }),
+    })
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(res.status).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'ok',
+      synced: 0,
+      total: 1,
+      failed: [{ board: 'board-2026-09', error: expect.stringContaining('count') }],
     }))
     expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toEqual(cachedBoard)
   })

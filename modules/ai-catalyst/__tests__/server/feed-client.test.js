@@ -33,12 +33,12 @@ describe('createFeedClient', () => {
   it('fetches a single board with an encoded board name', async () => {
     const fetchFn = vi.fn(async (url) => {
       expect(url).toBe('https://feed.example.test/feed/board.json?board=board-2026-09');
-      return jsonResponse(200, { kind: 'board', name: 'board-2026-09', count: 1, columns: [], rows: [] });
+      return jsonResponse(200, { kind: 'board', name: 'board-2026-09', count: 0, columns: [], rows: [] });
     });
     const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
 
     await expect(client.getBoard('board-2026-09')).resolves.toEqual({
-      kind: 'board', name: 'board-2026-09', count: 1, columns: [], rows: [],
+      kind: 'board', name: 'board-2026-09', count: 0, columns: [], rows: [],
     });
   });
 
@@ -141,6 +141,33 @@ describe('createFeedClient', () => {
     expect(err).toBeInstanceOf(FeedError);
     expect(err.message).toContain('/feed/board.json');
     expect(err.message).toContain('rows');
+  });
+
+  it('rejects board.json payloads whose count disagrees with the rows length', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, { count: 145, rows: [] }));
+    const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
+
+    const err = await client.getBoard('board-2026-09').catch(e => e);
+    expect(err).toBeInstanceOf(FeedError);
+    expect(err.message).toContain('count');
+    expect(err.message).toContain('145');
+  });
+
+  it('rejects board.json payloads with non-object rows', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, { count: 1, rows: ['not-an-object'] }));
+    const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
+
+    const err = await client.getBoard('board-2026-09').catch(e => e);
+    expect(err).toBeInstanceOf(FeedError);
+    expect(err.message).toContain('rows');
+    expect(err.message).toContain('object');
+  });
+
+  it('accepts a legitimately empty board', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, { count: 0, rows: [] }));
+    const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
+
+    await expect(client.getBoard('board-2026-09')).resolves.toEqual({ count: 0, rows: [] });
   });
 
   it('rejects unexpected showcase.json response shapes instead of returning empty catalogs', async () => {
