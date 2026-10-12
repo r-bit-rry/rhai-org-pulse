@@ -155,9 +155,10 @@ test-module: ## Run integration tests for a module (MODULE=<name>)
 # Runs the ai-catalyst feed-sync spec, which self-skips under the demo-mode
 # backend that test-module uses. Here the backend boots WITHOUT demo mode,
 # with a dummy feed token and loopback allowed, and a writable data mount
-# shared with the test container. Backend and tests share the host network
-# so the backend can reach the spec's loopback feed stub; the frontend comes
-# from Playwright's own `npm run dev` webServer (vite proxies /api to :3001).
+# shared with the test container. All containers share the host network so
+# the backend can reach the spec's loopback feed stub; the frontend is the
+# built nginx image (same as test-module) — the vite dev server cannot run
+# in the test container because the workspace's src/ symlink is absolute.
 # Usage: make test-ai-catalyst-feed-sync
 test-ai-catalyst-feed-sync: ## Run ai-catalyst feed-sync tests (non-demo backend + local stub)
 	@echo "Starting backend container (non-demo, dummy feed token, loopback allowed)..."
@@ -174,9 +175,16 @@ test-ai-catalyst-feed-sync: ## Run ai-catalyst feed-sync tests (non-demo backend
 		$(BACKEND_IMAGE) > /dev/null
 	@echo "Waiting for backend to be ready..."
 	$(CONTAINER_RUNTIME) run --rm --network host $(BACKEND_IMAGE) node -e "const deadline = Date.now() + 60000; (async () => { for (;;) { try { const r = await fetch('http://localhost:3001/api/healthz'); if (r.ok) { console.log('backend is ready'); process.exit(0); } } catch {} if (Date.now() > deadline) { console.error('backend failed to start'); process.exit(1); } await new Promise(r => setTimeout(r, 1000)); } })();"
+	@echo "Starting frontend container..."
+	$(CONTAINER_RUNTIME) run -d --network host \
+		--add-host=backend:127.0.0.1 \
+		--name $(FRONTEND_CONTAINER) \
+		$(FRONTEND_IMAGE) > /dev/null
+	@echo "Waiting for frontend to be ready..."
+	$(CONTAINER_RUNTIME) run --rm --network host $(BACKEND_IMAGE) node -e "const deadline = Date.now() + 60000; (async () => { for (;;) { try { const r = await fetch('http://localhost:8080/healthz'); if (r.ok) { console.log('frontend is ready'); process.exit(0); } } catch {} if (Date.now() > deadline) { console.error('frontend failed to start'); process.exit(1); } await new Promise(r => setTimeout(r, 1000)); } })();"
 	@echo "Running ai-catalyst feed-sync spec..."
 	$(CONTAINER_RUNTIME) run $(CONTAINER_FLAGS) $(COMMON_ENV) \
-		-e BASE_URL=http://localhost:5173 \
+		-e CI=1 \
 		$(PLAYWRIGHT_IMAGE) \
 		bash -c "$(SETUP_CMD) && npx playwright test tests/integration/ai-catalyst-feed-sync.spec.js --workers=1" || \
 		(EXIT_CODE=$$?; $(MAKE) clean-integration-test; exit $$EXIT_CODE)
