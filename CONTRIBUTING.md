@@ -192,6 +192,13 @@ MODULE_NAME=ai-impact                   # Choose a testable module
 make test-module MODULE=${MODULE_NAME}  # Runs the integration tests against an existing module
 ```
 
+The ai-catalyst feed-sync spec needs a writable, non-demo backend and skips
+itself under `make test-module`; run it explicitly with:
+
+```bash
+make test-ai-catalyst-feed-sync  # Boots a non-demo backend (dummy token) and runs the feed-sync spec
+```
+
 Available, testable modules can be found here by name: [tests/integration](./tests/integration/)
 
 ## Deployment
