@@ -199,6 +199,11 @@ itself under `make test-module`; run it explicitly with:
 make test-ai-catalyst-feed-sync  # Boots a non-demo backend (dummy token) and runs the feed-sync spec
 ```
 
+> [!WARNING]
+> The container test targets run `npm ci` against the bind-mounted workspace,
+> which replaces host-native optional dependencies with Linux bindings. On
+> macOS, run `npm i` afterwards to restore native deps.
+
 Available, testable modules can be found here by name: [tests/integration](./tests/integration/)
 
 ## Deployment
