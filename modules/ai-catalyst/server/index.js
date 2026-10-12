@@ -275,7 +275,8 @@ module.exports = function registerRoutes(router, context) {
   // --- Sync logic ---
 
   async function syncBoards() {
-    if (syncRunning || !(await isConfigured())) return { skipped: true };
+    if (syncRunning) return { status: 'skipped', reason: 'sync already running' };
+    if (!(await isConfigured())) return { status: 'skipped', reason: 'not configured' };
     syncRunning = true;
     try {
       const client = createFeedClient({
@@ -773,6 +774,7 @@ module.exports = function registerRoutes(router, context) {
         if (DEMO_MODE) return { status: 'skipped', reason: 'demo mode' };
         if (!(await isConfigured())) return { status: 'skipped', reason: 'not configured' };
         const result = await syncBoards();
+        if (result.status === 'skipped') return result;
         if (result.failed && result.failed.length) {
           // Throwing is the refresh registry's retry mechanism: a returned
           // value counts as success and would advance lastSuccessfulRun,
@@ -791,7 +793,10 @@ module.exports = function registerRoutes(router, context) {
       cadence: '1h',
       description: 'Sync AI Catalyst Showcase data from the POC Explorer feed',
       handler: async function() {
-        if (DEMO_MODE || !(await isConfigured())) return;
+        // A bare return counts as success and burns the cadence window;
+        // the skip shape keeps the handler due for the next tick.
+        if (DEMO_MODE) return { status: 'skipped', reason: 'demo mode' };
+        if (!(await isConfigured())) return { status: 'skipped', reason: 'not configured' };
         clearShowcaseCache();
         await fetchShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback);
       },

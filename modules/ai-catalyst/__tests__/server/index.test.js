@@ -633,7 +633,42 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
     await handlers['/sync']({}, res)
 
     expect(fetchMock).not.toHaveBeenCalled()
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok', skipped: true }))
+    expect(res.json).toHaveBeenCalledWith({ status: 'skipped', reason: 'not configured' })
+  })
+
+  it('reports an in-flight sync as skipped instead of counting it as success', async () => {
+    let releaseBoards
+    const gate = new Promise(resolve => { releaseBoards = resolve })
+    const fetchMock = vi.fn(async url => {
+      if (String(url).endsWith('/feed/boards.json')) await gate
+      return jsonResponse(200, { boards: [] })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { handlers } = makeContext()
+
+    const first = handlers['/sync']({}, { json: vi.fn(), status: vi.fn() })
+    // Let the first call enter its fetch before racing it with a second one.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const secondRes = { json: vi.fn(), status: vi.fn() }
+    await handlers['/sync']({}, secondRes)
+
+    expect(secondRes.json).toHaveBeenCalledWith({ status: 'skipped', reason: 'sync already running' })
+    releaseBoards()
+    await first
+  })
+
+  it('skips the boards refresh handler when the feed is not configured', async () => {
+    const { context } = makeContext({ context: { secrets: {} } })
+    const syncBoardsConfig = context.registerRefresh.mock.calls.find(c => c[0] === 'ai-catalyst:sync-boards')[1]
+
+    await expect(syncBoardsConfig.handler()).resolves.toEqual({ status: 'skipped', reason: 'not configured' })
+  })
+
+  it('skips the showcase refresh handler when the feed is not configured', async () => {
+    const { context } = makeContext({ context: { secrets: {} } })
+    const showcaseConfig = context.registerRefresh.mock.calls.find(c => c[0] === 'ai-catalyst:showcase-sync')[1]
+
+    await expect(showcaseConfig.handler()).resolves.toEqual({ status: 'skipped', reason: 'not configured' })
   })
 
   it('reports feed configuration status', async () => {
