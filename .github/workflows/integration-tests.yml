@@ -42,6 +42,7 @@ jobs:
             ai-catalyst:
               - 'modules/ai-catalyst/**'
               - 'tests/integration/ai-catalyst.spec.js'
+              - 'tests/integration/ai-catalyst-feed-sync.spec.js'
             system-health:
               - 'modules/system-health/**'
               - 'tests/integration/system-health.spec.js'
@@ -145,7 +146,7 @@ jobs:
           check_module "ai-impact" \
             "^(modules/ai-impact/|tests/integration/ai-impact\.spec\.js)"
           check_module "ai-catalyst" \
-            "^(modules/ai-catalyst/|tests/integration/ai-catalyst\.spec\.js)"
+            "^(modules/ai-catalyst/|tests/integration/ai-catalyst(-feed-sync)?\.spec\.js)"
           check_module "catalyst-showcase" \
             "^(modules/catalyst-showcase/|tests/integration/catalyst-showcase\.spec\.js)"
           check_module "system-health" \
