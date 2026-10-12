@@ -2,7 +2,6 @@ const { test, expect } = require('@playwright/test');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { DEFAULT_PAGE_WAIT_TIME } = require('./constants');
 const { setupErrorTracking, logCapturedErrors } = require('./helpers');
 
 /**
@@ -268,23 +267,25 @@ test.describe('AI Catalyst feed sync (local stub) @ai-catalyst', () => {
   });
 
   test('should render synced board data in the monthly board view', async ({ page, request }) => {
+    // Vite compiles this route on demand; container runs (especially under
+    // architecture emulation) need a patient first-render budget.
+    test.setTimeout(120000);
     await seedSyncedBoard(request);
 
     setupErrorTracking(page);
     await page.goto('/#/ai-catalyst/board');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(DEFAULT_PAGE_WAIT_TIME);
 
     // The default month is whatever the index holds (newest first) — derive
     // it from the synced state instead of assuming local data, then pick the
     // month this test synced.
     const boards = await (await request.get('/api/modules/ai-catalyst/boards')).json();
-    await expect(page.locator('select').first()).toHaveValue(boards.boards[0].month);
-    await page.locator('select').first().selectOption(STUB_BOARD_MONTH);
+    const monthSelect = page.locator('select').first();
+    await expect(monthSelect).toHaveValue(boards.boards[0].month, { timeout: 30000 });
+    await monthSelect.selectOption(STUB_BOARD_MONTH);
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(DEFAULT_PAGE_WAIT_TIME);
 
-    await expect(page.locator('main .grid h3').filter({ hasText: 'Stub Board Candidate' })).toBeVisible();
+    await expect(page.locator('main .grid h3').filter({ hasText: 'Stub Board Candidate' })).toBeVisible({ timeout: 30000 });
     await expect(page.locator('main .grid h3').filter({ hasText: 'Second Stub Candidate' })).toBeVisible();
 
     const appErrors = page.errors.filter(e => !/status of (429|404)/.test(e.message));
@@ -293,6 +294,7 @@ test.describe('AI Catalyst feed sync (local stub) @ai-catalyst', () => {
   });
 
   test('should sync the showcase from the stub and render it in the catalog', async ({ page }) => {
+    test.setTimeout(120000);
     setupErrorTracking(page);
     await page.goto('/');
     await page.waitForLoadState('networkidle');
@@ -318,9 +320,8 @@ test.describe('AI Catalyst feed sync (local stub) @ai-catalyst', () => {
 
     await page.goto('/#/ai-catalyst/catalog');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(DEFAULT_PAGE_WAIT_TIME);
 
-    await expect(page.locator('main .grid h3').filter({ hasText: 'Stub Synced Showcase Entry' })).toBeVisible();
+    await expect(page.locator('main .grid h3').filter({ hasText: 'Stub Synced Showcase Entry' })).toBeVisible({ timeout: 30000 });
 
     const appErrors = page.errors.filter(e => !/status of (429|404)/.test(e.message));
     expect(appErrors).toHaveLength(0);
