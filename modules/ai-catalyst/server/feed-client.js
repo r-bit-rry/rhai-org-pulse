@@ -1,5 +1,9 @@
 const DEFAULT_TIMEOUT_MS = 30000;
 
+// Loopback is the standard dev/test carve-out: a token sent to loopback
+// stays on the machine, so plain HTTP is tolerated there (and only there).
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+
 class FeedError extends Error {
   constructor(message, { status, body, cause } = {}) {
     super(message);
@@ -33,10 +37,36 @@ function abortRejection(signal) {
 }
 
 /**
+ * Validate the feed destination BEFORE the bearer token leaves the process:
+ * HTTPS only (except loopback), and — when callers pass an allowlist — only
+ * operator-approved origins. A URL from stored module settings must land in
+ * that set or the request never happens.
+ */
+function validateFeedDestination(root, allowedOrigins) {
+  let parsed;
+  try {
+    parsed = new URL(root);
+  } catch {
+    throw new FeedError(`POC Explorer feed URL is not a valid URL: ${root}`);
+  }
+
+  const isLoopback = LOOPBACK_HOSTNAMES.has(parsed.hostname);
+  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLoopback)) {
+    throw new FeedError(`POC Explorer feed URL must use HTTPS (plain HTTP is only allowed on loopback): ${root}`);
+  }
+
+  if (Array.isArray(allowedOrigins) && !isLoopback && !allowedOrigins.includes(parsed.origin)) {
+    throw new FeedError(
+      `POC Explorer feed URL is not an approved origin: ${parsed.origin} (approved: ${allowedOrigins.join(', ')})`,
+    );
+  }
+}
+
+/**
  * HTTP client for the POC Explorer machine feeds (ADR-077 producer side).
  * All endpoints require `Authorization: Bearer <token>` and return JSON.
  */
-function createFeedClient({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetchFn = globalThis.fetch }) {
+function createFeedClient({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetchFn = globalThis.fetch, allowedOrigins }) {
   const root = String(baseUrl || '').replace(/\/+$/, '');
 
   async function request(path) {
@@ -46,6 +76,7 @@ function createFeedClient({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetc
     if (!root) {
       throw new FeedError('POC Explorer feed URL is not configured — set POC_EXPLORER_FEED_URL');
     }
+    validateFeedDestination(root, allowedOrigins);
 
     const url = root + path;
     const controller = new AbortController();
@@ -103,7 +134,11 @@ function createFeedClient({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetc
       return body.boards.map(String);
     },
     async getBoard(name) {
-      return request(`/feed/board.json?board=${encodeURIComponent(name)}`);
+      const body = await request(`/feed/board.json?board=${encodeURIComponent(name)}`);
+      if (!Array.isArray(body.rows)) {
+        throw new FeedError('unexpected response shape from /feed/board.json — expected a "rows" array');
+      }
+      return body;
     },
     async getShowcase() {
       const body = await request('/feed/showcase.json');

@@ -133,6 +133,16 @@ describe('createFeedClient', () => {
     expect(err.message).toContain('boards');
   });
 
+  it('rejects unexpected board.json response shapes instead of returning zero rows', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, {}));
+    const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
+
+    const err = await client.getBoard('board-2026-09').catch(e => e);
+    expect(err).toBeInstanceOf(FeedError);
+    expect(err.message).toContain('/feed/board.json');
+    expect(err.message).toContain('rows');
+  });
+
   it('rejects unexpected showcase.json response shapes instead of returning empty catalogs', async () => {
     const fetchFn = vi.fn(async () => jsonResponse(200, { nope: [] }));
     const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
@@ -165,6 +175,94 @@ describe('createFeedClient', () => {
     const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: '', fetchFn });
 
     await expect(client.listBoards()).rejects.toThrow(/POC_EXPLORER_FEED_TOKEN/);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+});
+
+describe('createFeedClient destination validation', () => {
+  it('rejects non-HTTPS URLs before fetching', async () => {
+    const fetchFn = vi.fn();
+    const client = createFeedClient({ baseUrl: 'http://feed.example.test', token: 't', fetchFn });
+
+    const err = await client.listBoards().catch(e => e);
+    expect(err).toBeInstanceOf(FeedError);
+    expect(err.message).toContain('HTTPS');
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('allows HTTP on localhost', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, { boards: [] }));
+    const client = createFeedClient({ baseUrl: 'http://localhost:3001', token: 't', fetchFn });
+
+    await client.listBoards();
+    expect(fetchFn).toHaveBeenCalledWith('http://localhost:3001/feed/boards.json', expect.anything());
+  });
+
+  it('allows HTTP on 127.0.0.1', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, { boards: [] }));
+    const client = createFeedClient({ baseUrl: 'http://127.0.0.1:3001', token: 't', fetchFn });
+
+    await client.listBoards();
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows HTTP on [::1]', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, { boards: [] }));
+    const client = createFeedClient({ baseUrl: 'http://[::1]:3001', token: 't', fetchFn });
+
+    await client.listBoards();
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects URLs whose origin is not in allowedOrigins before fetching', async () => {
+    const fetchFn = vi.fn();
+    const client = createFeedClient({
+      baseUrl: 'https://evil.example.test',
+      token: 't',
+      fetchFn,
+      allowedOrigins: ['https://feed.example.test'],
+    });
+
+    const err = await client.listBoards().catch(e => e);
+    expect(err).toBeInstanceOf(FeedError);
+    expect(err.message).toContain('not an approved origin');
+    expect(err.message).toContain('https://evil.example.test');
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('allows URLs whose origin is in allowedOrigins', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, { boards: [] }));
+    const client = createFeedClient({
+      baseUrl: 'https://feed.example.test',
+      token: 't',
+      fetchFn,
+      allowedOrigins: ['https://feed.example.test'],
+    });
+
+    await client.listBoards();
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets loopback bypass the allowedOrigins check so local stubs work on ephemeral ports', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, { boards: [] }));
+    const client = createFeedClient({
+      baseUrl: 'http://127.0.0.1:45678',
+      token: 't',
+      fetchFn,
+      allowedOrigins: ['https://feed.example.test'],
+    });
+
+    await client.listBoards();
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects URLs that do not parse before fetching', async () => {
+    const fetchFn = vi.fn();
+    const client = createFeedClient({ baseUrl: 'not a url', token: 't', fetchFn });
+
+    const err = await client.listBoards().catch(e => e);
+    expect(err).toBeInstanceOf(FeedError);
+    expect(err.message).toContain('not a valid URL');
     expect(fetchFn).not.toHaveBeenCalled();
   });
 });
