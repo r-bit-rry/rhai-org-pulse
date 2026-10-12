@@ -188,6 +188,33 @@ describe('createFeedClient', () => {
     expect(err.message).toContain('/feed/showcase.json');
   });
 
+  it('rejects showcase.json payloads with null or non-object showcase_entries rows', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, { showcase_entries: [null], strategy_pillars: [] }));
+    const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
+
+    const err = await client.getShowcase().catch(e => e);
+    expect(err).toBeInstanceOf(FeedError);
+    expect(err.message).toContain('showcase_entries');
+    expect(err.message).toContain('objects');
+  });
+
+  it('rejects showcase.json payloads with non-object strategy_pillars rows', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, { showcase_entries: [], strategy_pillars: [{ pillar_key: 'ok' }, 'garbage'] }));
+    const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
+
+    const err = await client.getShowcase().catch(e => e);
+    expect(err).toBeInstanceOf(FeedError);
+    expect(err.message).toContain('strategy_pillars');
+    expect(err.message).toContain('objects');
+  });
+
+  it('accepts legitimately empty showcase arrays', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, { showcase_entries: [], strategy_pillars: [] }));
+    const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
+
+    await expect(client.getShowcase()).resolves.toEqual({ showcase_entries: [], strategy_pillars: [] });
+  });
+
   it('rejects non-JSON responses', async () => {
     const fetchFn = vi.fn(async () => ({ ok: true, status: 200, text: async () => '<html>oops</html>' }));
     const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });

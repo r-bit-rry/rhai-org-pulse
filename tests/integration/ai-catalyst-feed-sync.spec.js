@@ -77,6 +77,7 @@ function startFeedStub() {
   const stub = {
     requests: [],
     malformedBoards: new Set(),
+    malformedShowcase: false,
     baseUrl: null,
     server: null,
   };
@@ -101,6 +102,7 @@ function startFeedStub() {
       return send(200, STUB_BOARD_PAYLOAD);
     }
     if (url.pathname === '/feed/showcase.json') {
+      if (stub.malformedShowcase) return send(200, { showcase_entries: [null], strategy_pillars: [] });
       return send(200, {
         showcase_entries: [...toFeedRows(fixtureShowcase.entries, SHOWCASE_ENTRY_FEED_KEYS), STUB_SHOWCASE_MARKER_ENTRY],
         strategy_pillars: toFeedRows(fixtureShowcase.pillars, SHOWCASE_PILLAR_FEED_KEYS),
@@ -338,6 +340,49 @@ test.describe('AI Catalyst feed sync (local stub) @ai-catalyst', () => {
     const appErrors = page.errors.filter(e => !/status of (429|404)/.test(e.message));
     expect(appErrors).toHaveLength(0);
     logCapturedErrors(page, { title: 'render synced showcase data' });
+  });
+
+  test('should keep the stored showcase catalog when the feed serves malformed rows', async ({ page, request }) => {
+    test.setTimeout(120000);
+
+    // Seed: point the showcase feed at this test's own stub and run one
+    // successful refresh, so the test starts from known state.
+    const saveRes = await request.post('/api/modules/ai-catalyst/showcase/config', {
+      data: { feedUrl: stub.baseUrl },
+    });
+    expect(saveRes.ok()).toBe(true);
+    const refreshRes = await request.post('/api/modules/ai-catalyst/showcase/refresh');
+    expect(refreshRes.ok()).toBe(true);
+    expect(await refreshRes.json()).toMatchObject({ status: 'refreshed', entries: 5, pillars: 5 });
+
+    const showcaseFile = path.join(AI_CATALYST_DATA_DIR, 'showcase/showcase-data.json');
+    const bytesBefore = fs.readFileSync(showcaseFile);
+
+    stub.malformedShowcase = true;
+    // Ensure a re-stamped timestamp would differ from the captured bytes.
+    await new Promise(resolve => setTimeout(resolve, 25));
+
+    const failedRefresh = await request.post('/api/modules/ai-catalyst/showcase/refresh');
+    expect(failedRefresh.status()).toBe(500);
+    expect((await failedRefresh.json()).details).toContain('showcase_entries');
+
+    // The stored catalog and its timestamps are byte-identical.
+    expect(fs.readFileSync(showcaseFile)).toEqual(bytesBefore);
+
+    // Reads still serve the preserved catalog.
+    const entriesRes = await request.get('/api/modules/ai-catalyst/showcase/entries');
+    expect(entriesRes.ok()).toBe(true);
+    expect((await entriesRes.json()).entries.map(e => e.slug)).toContain('stub-synced-entry');
+
+    // Rendering is intact.
+    setupErrorTracking(page);
+    await page.goto('/#/ai-catalyst/catalog');
+    await page.waitForLoadState('networkidle');
+    await expect(page.locator('main .grid h3').filter({ hasText: 'Stub Synced Showcase Entry' })).toBeVisible({ timeout: 30000 });
+
+    const appErrors = page.errors.filter(e => !/status of (429|404)/.test(e.message));
+    expect(appErrors).toHaveLength(0);
+    logCapturedErrors(page, { title: 'render preserved showcase data' });
   });
 
   test('should reject feed URLs with unapproved origins before fetching', async ({ request }) => {

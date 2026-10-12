@@ -159,6 +159,11 @@ function createFeedClient({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetc
         if (!Array.isArray(body[key])) {
           throw new FeedError(`unexpected response shape from /feed/showcase.json — expected a "${key}" array`);
         }
+        // Null or non-object rows would be silently dropped by the row mapper,
+        // wiping the cached catalog with a "successful" empty sync.
+        if (!body[key].every(r => r && typeof r === 'object' && !Array.isArray(r))) {
+          throw new FeedError(`unexpected response shape from /feed/showcase.json — "${key}" entries must all be objects`);
+        }
       }
       return body;
     },

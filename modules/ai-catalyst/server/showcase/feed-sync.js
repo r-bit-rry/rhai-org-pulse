@@ -1,4 +1,4 @@
-const { createFeedClient } = require('../feed-client');
+const { createFeedClient, FeedError } = require('../feed-client');
 
 const STORAGE_KEY = 'ai-catalyst/showcase/showcase-data.json';
 const CACHE_TTL = 5 * 60 * 1000;
@@ -209,14 +209,19 @@ async function fetchShowcaseData(baseUrl, token, storage, allowedOrigins, allowL
   const client = createFeedClient({ baseUrl, token, allowedOrigins, allowLoopback });
   const payload = await client.getShowcase();
 
-  const entries = (Array.isArray(payload.showcase_entries) ? payload.showcase_entries : [])
-    .map(row => mapRow(row, ENTRY_COLUMN_MAP))
-    .filter(e => e.slug);
+  // The producer validates slug and pillar_key at load time, so a mapped row
+  // without its key means a degraded feed: reject the payload instead of
+  // silently dropping rows, which would wipe the stored catalog.
+  const entries = payload.showcase_entries.map(row => mapRow(row, ENTRY_COLUMN_MAP));
+  if (entries.some(e => !e.slug)) {
+    throw new FeedError('unexpected response shape from /feed/showcase.json — every "showcase_entries" row must carry a non-empty slug');
+  }
 
-  const pillars = (Array.isArray(payload.strategy_pillars) ? payload.strategy_pillars : [])
-    .map(row => mapRow(row, PILLAR_COLUMN_MAP))
-    .filter(p => p.pillarKey)
-    .sort((a, b) => a.sortOrder - b.sortOrder);
+  const pillars = payload.strategy_pillars.map(row => mapRow(row, PILLAR_COLUMN_MAP));
+  if (pillars.some(p => !p.pillarKey)) {
+    throw new FeedError('unexpected response shape from /feed/showcase.json — every "strategy_pillars" row must carry a non-empty pillar_key');
+  }
+  pillars.sort((a, b) => a.sortOrder - b.sortOrder);
 
   const result = normalizeShowcaseData({
     entries: entries.sort((a, b) => a.sortOrder - b.sortOrder),
@@ -224,11 +229,12 @@ async function fetchShowcaseData(baseUrl, token, storage, allowedOrigins, allowL
     fetchedAt: new Date().toISOString(),
   });
 
-  _cache = { data: result, ts: Date.now() };
-
   if (storage) {
     await storage.writeToStorage(STORAGE_KEY, result);
   }
+  // Set only after the storage write so a failed sync cannot leave the
+  // in-memory cache ahead of the preserved stored catalog.
+  _cache = { data: result, ts: Date.now() };
 
   return result;
 }

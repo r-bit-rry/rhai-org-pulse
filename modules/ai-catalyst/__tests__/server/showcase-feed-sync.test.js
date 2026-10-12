@@ -13,6 +13,7 @@ import {
   mergePillarMetadata,
   normalizeShowcaseData,
   ARRAY_FIELDS,
+  STORAGE_KEY,
 } from '../../server/showcase/feed-sync.js';
 
 const FEED_PAYLOAD = {
@@ -35,11 +36,6 @@ const FEED_PAYLOAD = {
       sort_order: 2,
       capability_tags: 'agents|kubernetes',
       strategy_pillar_key: 'agentic-ai',
-    },
-    {
-      slug: '',
-      title: 'Row without slug is dropped',
-      status: 'draft',
     },
   ],
   strategy_pillars: [
@@ -342,6 +338,57 @@ describe('fetchShowcaseData', () => {
 
     const result = await getShowcaseData('https://feed.example.test', 'token-123', storage);
     expect(result.entries[0].slug).toBe('stored-entry');
+  });
+
+  it('rejects null showcase entry rows instead of wiping the catalog', async () => {
+    stubFeed({ '/feed/showcase.json': { showcase_entries: [null], strategy_pillars: [] } });
+    const storage = { writeToStorage: vi.fn(async () => {}), readFromStorage: vi.fn(async () => null) };
+
+    await expect(fetchShowcaseData('https://feed.example.test', 'token-123', storage))
+      .rejects.toThrow('showcase_entries');
+    expect(storage.writeToStorage).not.toHaveBeenCalled();
+  });
+
+  it('rejects entry rows without a slug instead of silently dropping them', async () => {
+    stubFeed({ '/feed/showcase.json': { showcase_entries: [{ title: 'No slug', status: 'active' }], strategy_pillars: [] } });
+    const storage = { writeToStorage: vi.fn(async () => {}), readFromStorage: vi.fn(async () => null) };
+
+    await expect(fetchShowcaseData('https://feed.example.test', 'token-123', storage))
+      .rejects.toThrow('slug');
+    expect(storage.writeToStorage).not.toHaveBeenCalled();
+  });
+
+  it('rejects pillar rows without a pillar_key instead of silently dropping them', async () => {
+    stubFeed({ '/feed/showcase.json': { showcase_entries: [], strategy_pillars: [{ title: 'No key' }] } });
+    const storage = { writeToStorage: vi.fn(async () => {}), readFromStorage: vi.fn(async () => null) };
+
+    await expect(fetchShowcaseData('https://feed.example.test', 'token-123', storage))
+      .rejects.toThrow('pillar_key');
+    expect(storage.writeToStorage).not.toHaveBeenCalled();
+  });
+
+  it('preserves the stored catalog and its timestamps when the feed serves malformed rows', async () => {
+    const stored = {
+      entries: [{ slug: 'stored-entry', status: 'active', strategyPillarKey: 'model-inference' }],
+      pillars: [],
+      fetchedAt: '2026-09-01T00:00:00Z',
+    };
+    const map = new Map([[STORAGE_KEY, stored]]);
+    const storage = {
+      writeToStorage: vi.fn(async (key, value) => { map.set(key, value); }),
+      readFromStorage: vi.fn(async key => map.get(key) ?? null),
+    };
+    stubFeed({ '/feed/showcase.json': { showcase_entries: [null], strategy_pillars: [] } });
+
+    await expect(fetchShowcaseData('https://feed.example.test', 'token-123', storage))
+      .rejects.toThrow('showcase_entries');
+    expect(storage.writeToStorage).not.toHaveBeenCalled();
+    expect(map.get(STORAGE_KEY)).toBe(stored);
+
+    // Reads after the failed sync repopulate from the preserved stored data.
+    const data = await getShowcaseData('https://feed.example.test', 'token-123', storage);
+    expect(data.entries[0].slug).toBe('stored-entry');
+    expect(data.fetchedAt).toBe('2026-09-01T00:00:00Z');
   });
 
   it('rethrows when no cached or stored fallback exists', async () => {

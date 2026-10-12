@@ -899,6 +899,52 @@ describe('ai-catalyst showcase feed URL resolution', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('throws from the showcase refresh handler when the feed serves malformed rows', async () => {
+    stubFeedFeed(
+      { '/feed/showcase.json': { showcase_entries: [null], strategy_pillars: [] } },
+      { url: 'https://showcase.redhataicatalyst.com' }
+    )
+    const { context } = makeContext()
+    const showcaseConfig = context.registerRefresh.mock.calls.find(c => c[0] === 'ai-catalyst:showcase-sync')[1]
+
+    // Throwing is the refresh registry's retry mechanism — a returned value
+    // would count the malformed sync as successful.
+    await expect(showcaseConfig.handler()).rejects.toThrow('showcase_entries')
+  })
+
+  it('reports manual showcase refresh failure and preserves stored data on malformed rows', async () => {
+    stubFeedFeed(
+      { '/feed/showcase.json': { showcase_entries: [null], strategy_pillars: [] } },
+      { url: 'https://showcase.redhataicatalyst.com' }
+    )
+    const stored = {
+      entries: [{ slug: 'stored-entry', status: 'active', strategyPillarKey: 'model-inference' }],
+      pillars: [],
+      fetchedAt: '2026-09-01T00:00:00Z',
+    }
+    const storage = makeStorage({ 'ai-catalyst/showcase/showcase-data.json': stored })
+    const { handlers } = makeContext({ storage })
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/showcase/refresh']({}, res)
+
+    expect(res.status).toHaveBeenCalledWith(500)
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'Failed to refresh from POC Explorer feed',
+      details: expect.stringContaining('showcase_entries'),
+    })
+    expect(storage.writeToStorage).not.toHaveBeenCalled()
+    expect(storage.map.get('ai-catalyst/showcase/showcase-data.json')).toBe(stored)
+
+    // Reads after the failed refresh serve the preserved stored catalog.
+    const entriesRes = { json: vi.fn(), status: vi.fn() }
+    await handlers['/showcase/entries']({}, entriesRes)
+    expect(entriesRes.json).toHaveBeenCalledWith(expect.objectContaining({
+      entries: [expect.objectContaining({ slug: 'stored-entry' })],
+      fetchedAt: '2026-09-01T00:00:00Z',
+    }))
+  })
+
   it('keeps the board feed on POC_EXPLORER_FEED_URL', async () => {
     const fetchMock = stubFeedFeed(
       { '/feed/boards.json': { boards: [] } },
