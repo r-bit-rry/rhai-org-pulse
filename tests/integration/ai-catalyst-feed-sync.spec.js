@@ -197,6 +197,12 @@ test.describe('AI Catalyst feed sync (local stub) @ai-catalyst', () => {
       data: { feedUrl: stub.baseUrl },
     });
     expect(saveRes.ok()).toBe(true);
+    // Board reads load pillar data through the showcase read path; point it
+    // at the stub so board tests never depend on external network egress.
+    const showcaseRes = await request.post('/api/modules/ai-catalyst/showcase/config', {
+      data: { feedUrl: stub.baseUrl },
+    });
+    expect(showcaseRes.ok()).toBe(true);
     stub.malformedBoards.clear();
     const syncRes = await request.post('/api/modules/ai-catalyst/sync');
     expect(syncRes.ok()).toBe(true);

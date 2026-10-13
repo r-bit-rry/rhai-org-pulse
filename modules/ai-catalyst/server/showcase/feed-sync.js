@@ -210,8 +210,8 @@ function normalizeShowcaseData(data) {
   };
 }
 
-async function fetchShowcaseData(baseUrl, token, storage, allowedOrigins, allowLoopback) {
-  const client = createFeedClient({ baseUrl, token, allowedOrigins, allowLoopback });
+async function fetchShowcaseData(baseUrl, token, storage, allowedOrigins, allowLoopback, timeoutMs) {
+  const client = createFeedClient({ baseUrl, token, allowedOrigins, allowLoopback, timeoutMs });
   const payload = await client.getShowcase();
 
   // The producer validates slug and pillar_key at load time, so a mapped row
@@ -244,13 +244,13 @@ async function fetchShowcaseData(baseUrl, token, storage, allowedOrigins, allowL
   return result;
 }
 
-async function getShowcaseData(baseUrl, token, storage, allowedOrigins, allowLoopback) {
+async function getShowcaseData(baseUrl, token, storage, allowedOrigins, allowLoopback, timeoutMs) {
   if (_cache && Date.now() - _cache.ts < CACHE_TTL) {
     return _cache.data;
   }
 
   try {
-    return await fetchShowcaseData(baseUrl, token, storage, allowedOrigins, allowLoopback);
+    return await fetchShowcaseData(baseUrl, token, storage, allowedOrigins, allowLoopback, timeoutMs);
   } catch (err) {
     if (_cache) {
       console.error('[ai-catalyst:showcase] Feed fetch failed, using cached data:', err.message);

@@ -265,6 +265,22 @@ describe('fetchShowcaseData', () => {
     vi.unstubAllGlobals();
   });
 
+  it('bounds read-path fetches to the given timeout and falls back to stored data', async () => {
+    // A hanging fetch (e.g. unreachable showcase host on a restricted
+    // network) must not block read routes for the full default timeout.
+    vi.stubGlobal('fetch', (url, options) => new Promise((_, reject) => {
+      options.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+    }));
+    const stored = { showcase_entries: [], strategy_pillars: [] };
+    const storage = { writeToStorage: vi.fn(async () => {}), readFromStorage: vi.fn(async () => stored) };
+
+    const startedAt = Date.now();
+    const data = await getShowcaseData('https://feed.example.test', 'token-123', storage, undefined, false, 50);
+
+    expect(Date.now() - startedAt).toBeLessThan(5000);
+    expect(data).toEqual(normalizeShowcaseData(stored));
+  });
+
   it('fetches /feed/showcase.json with bearer auth and maps rows', async () => {
     const fetchMock = stubFeed({ '/feed/showcase.json': FEED_PAYLOAD });
     const storage = { writeToStorage: vi.fn(async () => {}) };
