@@ -154,6 +154,12 @@ function createFeedClient({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetc
       if (!body.rows.every(r => r && typeof r === 'object' && !Array.isArray(r))) {
         throw new FeedError('unexpected response shape from /feed/board.json — "rows" entries must all be objects');
       }
+      // The producer stringifies every cell (ADR-077); a non-string cell
+      // value is producer drift that crashes string consumers downstream.
+      // Missing or null cells stay allowed (existing missing-field semantics).
+      if (!body.rows.every(r => Object.values(r).every(v => v == null || typeof v === 'string'))) {
+        throw new FeedError('unexpected response shape from /feed/board.json — row cell values must all be strings');
+      }
       return body;
     },
     async getShowcase() {

@@ -545,6 +545,61 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
     expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toEqual(cachedBoard)
   })
 
+  it('keeps the cached board when board.json serves a valid envelope with non-string cells', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': { boards: ['board-2026-09'] },
+      '/feed/board.json?board=board-2026-09': {
+        kind: 'board',
+        name: 'board-2026-09',
+        count: 1,
+        columns: ['title', 'unique_id', 'pm_decision'],
+        rows: [{ title: 'Drifted Entry', unique_id: 'org/drift', pm_decision: { decision: 'Approve' } }],
+      },
+    })
+    const cachedBoard = [{ title: 'Cached Entry', uniqueId: 'org/cached' }]
+    const { handlers, storage } = makeContext({
+      storage: makeStorage({
+        'ai-catalyst/index.json': {
+          boards: [{ month: '2026-09', candidateCount: 1, lastSynced: '2026-09-16T10:00:00Z' }],
+          lastSynced: '2026-09-16T10:00:00Z',
+        },
+        'ai-catalyst/boards/2026-09.json': cachedBoard,
+      }),
+    })
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(res.status).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'ok',
+      synced: 0,
+      total: 1,
+      failed: [{ board: 'board-2026-09', error: expect.stringContaining('strings') }],
+    }))
+    expect(storage.writeToStorage).not.toHaveBeenCalledWith('ai-catalyst/boards/2026-09.json', expect.anything())
+    expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toBe(cachedBoard)
+    const index = storage.map.get('ai-catalyst/index.json')
+    expect(index.lastSynced).toBe('2026-09-16T10:00:00Z')
+    expect(index.boards[0].lastSynced).toBe('2026-09-16T10:00:00Z')
+  })
+
+  it('rejects the refresh handler when a board serves non-string cells so the registry retries', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': { boards: ['board-2026-09'] },
+      '/feed/board.json?board=board-2026-09': {
+        count: 1,
+        rows: [{ title: 'Drifted Entry', unique_id: 'org/drift', pm_decision: { decision: 'Approve' } }],
+      },
+    })
+    const { context } = makeContext()
+    const syncBoardsConfig = context.registerRefresh.mock.calls.find(c => c[0] === 'ai-catalyst:sync-boards')[1]
+
+    await expect(syncBoardsConfig.handler()).rejects.toThrow(
+      'Board sync failed for 1/1 boards — board-2026-09:',
+    )
+  })
+
   it('keeps the cached board when board.json reports a count that disagrees with its rows', async () => {
     stubFeedFeed({
       '/feed/boards.json': { boards: ['board-2026-09'] },

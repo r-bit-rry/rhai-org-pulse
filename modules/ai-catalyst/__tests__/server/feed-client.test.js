@@ -182,6 +182,42 @@ describe('createFeedClient', () => {
     expect(err.message).toContain('object');
   });
 
+  it('rejects board.json payloads with object cell values', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, {
+      count: 1,
+      rows: [{ title: 'Drifted Entry', unique_id: 'org/drift', pm_decision: { decision: 'Approve' } }],
+    }));
+    const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
+
+    const err = await client.getBoard('board-2026-09').catch(e => e);
+    expect(err).toBeInstanceOf(FeedError);
+    expect(err.message).toContain('/feed/board.json');
+    expect(err.message).toContain('strings');
+  });
+
+  it('rejects board.json payloads with number cell values', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, {
+      count: 1,
+      rows: [{ title: 'Drifted Entry', unique_id: 'org/drift', impact_score: 9 }],
+    }));
+    const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
+
+    const err = await client.getBoard('board-2026-09').catch(e => e);
+    expect(err).toBeInstanceOf(FeedError);
+    expect(err.message).toContain('/feed/board.json');
+    expect(err.message).toContain('strings');
+  });
+
+  it('accepts board.json rows with null cells', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, {
+      count: 1,
+      rows: [{ title: 'Sparse Entry', unique_id: 'org/sparse', pm_decision: null }],
+    }));
+    const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
+
+    await expect(client.getBoard('board-2026-09')).resolves.toMatchObject({ count: 1 });
+  });
+
   it('accepts a legitimately empty board', async () => {
     const fetchFn = vi.fn(async () => jsonResponse(200, { count: 0, rows: [] }));
     const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
