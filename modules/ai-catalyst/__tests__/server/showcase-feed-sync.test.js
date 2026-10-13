@@ -154,6 +154,16 @@ describe('mapRow', () => {
     const result = mapRow({ slug: 'test', sort_order: 'not-a-number' }, ENTRY_COLUMN_MAP);
     expect(result.sortOrder).toBe(999);
   });
+
+  it('keeps a legitimate sort_order of 0', () => {
+    const result = mapRow({ slug: 'test', sort_order: 0 }, ENTRY_COLUMN_MAP);
+    expect(result.sortOrder).toBe(0);
+  });
+
+  it('defaults sortOrder to 999 when sort_order is missing', () => {
+    const result = mapRow({ slug: 'test' }, ENTRY_COLUMN_MAP);
+    expect(result.sortOrder).toBe(999);
+  });
 });
 
 describe('constants', () => {

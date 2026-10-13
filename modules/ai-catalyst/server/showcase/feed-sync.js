@@ -96,7 +96,11 @@ function mapRow(row, columnMap) {
     } else {
       let val = raw === undefined || raw === null ? '' : raw;
       if (typeof val !== 'number') val = String(val).trim();
-      obj[key] = key === 'sortOrder' ? (parseInt(val, 10) || 999) : val;
+      if (key === 'sortOrder') {
+        const n = parseInt(val, 10);
+        val = Number.isFinite(n) ? n : 999;
+      }
+      obj[key] = val;
     }
   }
   return obj;
