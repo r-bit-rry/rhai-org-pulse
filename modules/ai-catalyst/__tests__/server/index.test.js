@@ -473,6 +473,26 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
     }))
   })
 
+  it('reports garbage board names as failed instead of silently dropping them', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': { boards: ['board-2026-09', 'garbage'] },
+      '/feed/board.json?board=board-2026-09': BOARD_2026_09_PAYLOAD,
+    })
+    const { handlers, storage } = makeContext()
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(res.status).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'ok',
+      synced: 1,
+      total: 2,
+      failed: [{ board: 'garbage', error: 'board name does not match board-YYYY-MM' }],
+    }))
+    expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toHaveLength(2)
+  })
+
   it('continues past per-board failures and reports them honestly', async () => {
     stubFeedFeed({
       '/feed/boards.json': FEED_BOARDS_PAYLOAD,
@@ -715,6 +735,29 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
 
     await expect(syncBoardsConfig.handler()).rejects.toThrow(
       'Board sync failed for 1/2 boards — board-2026-10: unknown board (1 known)',
+    )
+  })
+
+  it('rejects the refresh handler when a board name is garbage so the registry retries', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': { boards: ['board-2026-09', 'garbage'] },
+      '/feed/board.json?board=board-2026-09': BOARD_2026_09_PAYLOAD,
+    })
+    const { context } = makeContext()
+    const syncBoardsConfig = context.registerRefresh.mock.calls.find(c => c[0] === 'ai-catalyst:sync-boards')[1]
+
+    await expect(syncBoardsConfig.handler()).rejects.toThrow(
+      'Board sync failed for 1/2 boards — garbage: board name does not match board-YYYY-MM',
+    )
+  })
+
+  it('fails the run instead of skipping when every listed board name is garbage', async () => {
+    stubFeedFeed({ '/feed/boards.json': { boards: ['garbage'] } })
+    const { context } = makeContext()
+    const syncBoardsConfig = context.registerRefresh.mock.calls.find(c => c[0] === 'ai-catalyst:sync-boards')[1]
+
+    await expect(syncBoardsConfig.handler()).rejects.toThrow(
+      'Board sync failed for 1/1 boards — garbage: board name does not match board-YYYY-MM',
     )
   })
 

@@ -302,20 +302,26 @@ module.exports = function registerRoutes(router, context) {
         allowLoopback,
       });
 
-      const boardNames = (await client.listBoards()).filter(n => BOARD_NAME_RE.test(n));
+      const listedBoards = await client.listBoards();
 
-      if (boardNames.length === 0) {
+      if (listedBoards.length === 0) {
         // A shape-valid empty list is a degraded feed, not a successful
         // sync: the skip shape keeps the refresh handler due for the next
         // tick instead of stamping success for a full cadence window.
         return { status: 'skipped', reason: 'feed returned no boards' };
       }
 
+      // A name the board filter drops is failed propagation, not a silent
+      // skip: it rides failed[] so the refresh handler rejects the run.
+      const failed = listedBoards
+        .filter(n => !BOARD_NAME_RE.test(n))
+        .map(n => ({ board: n, error: 'board name does not match board-YYYY-MM' }));
+      const boardNames = listedBoards.filter(n => BOARD_NAME_RE.test(n));
+
       const existingIndex = await readIndex();
       const previousByMonth = new Map((existingIndex.boards || []).map(b => [b.month, b]));
       const months = new Set(previousByMonth.keys());
       const syncedMonths = new Set();
-      const failed = [];
       let syncCount = 0;
 
       for (const boardName of boardNames) {
@@ -359,7 +365,7 @@ module.exports = function registerRoutes(router, context) {
       if (!runFailed) {
         lastSyncTime = now;
       }
-      return { synced: syncCount, failed, total: boardNames.length };
+      return { synced: syncCount, failed, total: listedBoards.length };
     } finally {
       syncRunning = false;
     }
