@@ -135,7 +135,10 @@ function createFeedClient({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetc
       if (!Array.isArray(body.boards)) {
         throw new FeedError('unexpected response shape from /feed/boards.json — expected a "boards" array');
       }
-      return body.boards.map(String);
+      if (!body.boards.every(b => typeof b === 'string')) {
+        throw new FeedError('unexpected response shape from /feed/boards.json — "boards" entries must all be strings');
+      }
+      return body.boards;
     },
     async getBoard(name) {
       const body = await request(`/feed/board.json?board=${encodeURIComponent(name)}`);

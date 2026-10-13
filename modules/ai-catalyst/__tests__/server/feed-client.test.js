@@ -133,6 +133,16 @@ describe('createFeedClient', () => {
     expect(err.message).toContain('boards');
   });
 
+  it('rejects boards.json payloads with non-string board names', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, { boards: [null] }));
+    const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
+
+    const err = await client.listBoards().catch(e => e);
+    expect(err).toBeInstanceOf(FeedError);
+    expect(err.message).toContain('/feed/boards.json');
+    expect(err.message).toContain('string');
+  });
+
   it('rejects unexpected board.json response shapes instead of returning zero rows', async () => {
     const fetchFn = vi.fn(async () => jsonResponse(200, {}));
     const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
