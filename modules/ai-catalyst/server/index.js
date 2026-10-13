@@ -75,7 +75,22 @@ function parseFeedRow(row) {
       const s = typeof val === 'string' ? val.toLowerCase() : '';
       obj[camel] = s === 'yes' || s === 'true' || s === '1';
     } else if (JSON_FIELDS.has(key)) {
-      try { obj[camel] = val ? JSON.parse(val) : []; } catch { obj[camel] = []; }
+      // Empty means "no review history yet"; anything else must parse to an
+      // array or the board fails loudly instead of silently erasing history.
+      if (val === '' || val === null || val === undefined) {
+        obj[camel] = [];
+      } else {
+        let parsed;
+        try {
+          parsed = JSON.parse(val);
+        } catch {
+          parsed = undefined;
+        }
+        if (!Array.isArray(parsed)) {
+          throw new Error(`malformed ${key} on feed row "${row.title || row.unique_id || 'unknown'}" — expected a JSON array`);
+        }
+        obj[camel] = parsed;
+      }
     } else {
       obj[camel] = val;
     }
