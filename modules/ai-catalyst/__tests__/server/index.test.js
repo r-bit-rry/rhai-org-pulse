@@ -608,6 +608,61 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
     expect(storage.map.has('ai-catalyst/boards/2026-09.json')).toBe(false)
   })
 
+  it('fails the board and preserves the cache when every row parses empty but count is positive', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': { boards: ['board-2026-09'] },
+      '/feed/board.json?board=board-2026-09': {
+        count: 2,
+        rows: [
+          { title: '', unique_id: '', impact_score: '' },
+          { title: '', unique_id: '', impact_score: '' },
+        ],
+      },
+    })
+    const cachedBoard = [{ title: 'Cached Entry', uniqueId: 'org/cached' }]
+    const { handlers, storage } = makeContext({
+      storage: makeStorage({
+        'ai-catalyst/index.json': {
+          boards: [{ month: '2026-09', candidateCount: 1, lastSynced: '2026-09-16T10:00:00Z' }],
+          lastSynced: '2026-09-16T10:00:00Z',
+        },
+        'ai-catalyst/boards/2026-09.json': cachedBoard,
+      }),
+    })
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(res.status).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'ok',
+      synced: 0,
+      total: 1,
+      failed: [{ board: 'board-2026-09', error: expect.stringContaining('degraded') }],
+    }))
+    expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toEqual(cachedBoard)
+  })
+
+  it('accepts a legitimately empty board with count 0 and no rows', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': { boards: ['board-2026-09'] },
+      '/feed/board.json?board=board-2026-09': { count: 0, rows: [] },
+    })
+    const { handlers, storage } = makeContext()
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(res.status).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'ok',
+      synced: 1,
+      total: 1,
+      failed: [],
+    }))
+    expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toEqual([])
+  })
+
   it('preserves the previous lastSynced for months that fail this run', async () => {
     stubFeedFeed({
       '/feed/boards.json': FEED_BOARDS_PAYLOAD,

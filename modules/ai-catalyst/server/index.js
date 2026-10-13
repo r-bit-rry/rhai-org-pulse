@@ -319,6 +319,12 @@ module.exports = function registerRoutes(router, context) {
         try {
           const payload = await client.getBoard(boardName);
           const candidates = parseBoardRows(payload.rows);
+          // All-empty rows passing the count check is a degraded board: the
+          // producer emits some all-empty rows legitimately, but never a
+          // board made of nothing but them.
+          if (candidates.length === 0 && payload.count > 0) {
+            throw new Error(`degraded board payload — reported ${payload.count} rows but none parsed into candidates`);
+          }
           await writeToStorage(`${STORAGE_PREFIX}/boards/${month}.json`, candidates);
           syncCount++;
           syncedMonths.add(month);
