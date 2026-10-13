@@ -603,6 +603,7 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
       total: 1,
       failed: [{ board: 'board-2026-09', error: expect.stringContaining('pm_review_history') }],
     }))
+    expect(res.json.mock.calls[0][0].failed[0].error).toEqual(expect.stringContaining('Broken History'))
     expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toEqual(cachedBoard)
   })
 
@@ -625,6 +626,7 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
       total: 1,
       failed: [{ board: 'board-2026-09', error: expect.stringContaining('pm_review_history') }],
     }))
+    expect(res.json.mock.calls[0][0].failed[0].error).toEqual(expect.stringContaining('Object History'))
     expect(storage.map.has('ai-catalyst/boards/2026-09.json')).toBe(false)
   })
 
