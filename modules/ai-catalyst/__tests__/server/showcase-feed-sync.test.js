@@ -223,6 +223,18 @@ describe('pillar metadata', () => {
     });
   });
 
+  it('sorts a pillar with sortOrder 0 before sortOrder 1', () => {
+    const result = mergePillarMetadata(
+      [
+        { pillarKey: 'second-pillar', sortOrder: 1 },
+        { pillarKey: 'first-pillar', sortOrder: 0 },
+      ],
+      [],
+    );
+
+    expect(result.map(p => p.pillarKey)).toEqual(['first-pillar', 'second-pillar']);
+  });
+
   it('adds metadata for showcase entries whose pillar row is not refreshed yet', () => {
     const result = normalizeShowcaseData({
       entries: [{ slug: 'new', strategyPillarKey: 'future-pillar' }],

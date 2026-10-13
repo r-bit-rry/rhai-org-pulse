@@ -178,7 +178,7 @@ function mergePillarMetadata(pillars, referencedKeys) {
   }
 
   return [...byKey.values()].sort((a, b) => {
-    const orderDiff = (a.sortOrder || 999) - (b.sortOrder || 999);
+    const orderDiff = (a.sortOrder ?? 999) - (b.sortOrder ?? 999);
     return orderDiff || a.pillarKey.localeCompare(b.pillarKey);
   });
 }
