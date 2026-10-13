@@ -304,7 +304,10 @@ module.exports = function registerRoutes(router, context) {
       const boardNames = (await client.listBoards()).filter(n => BOARD_NAME_RE.test(n));
 
       if (boardNames.length === 0) {
-        return { synced: 0, message: 'No boards found' };
+        // A shape-valid empty list is a degraded feed, not a successful
+        // sync: the skip shape keeps the refresh handler due for the next
+        // tick instead of stamping success for a full cadence window.
+        return { status: 'skipped', reason: 'feed returned no boards' };
       }
 
       const existingIndex = await readIndex();

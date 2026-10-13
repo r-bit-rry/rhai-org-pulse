@@ -734,6 +734,25 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
     })
   })
 
+  it('returns a skip instead of burning the cadence when the feed lists no boards', async () => {
+    stubFeedFeed({ '/feed/boards.json': { boards: [] } })
+    const { handlers, storage } = makeContext()
+
+    const res = { json: vi.fn(), status: vi.fn() }
+    await handlers['/sync']({}, res)
+
+    expect(res.json).toHaveBeenCalledWith({ status: 'skipped', reason: 'feed returned no boards' })
+    expect(storage.writeToStorage).not.toHaveBeenCalled()
+  })
+
+  it('passes the empty-board-list skip through the boards refresh handler', async () => {
+    stubFeedFeed({ '/feed/boards.json': { boards: [] } })
+    const { context } = makeContext()
+    const syncBoardsConfig = context.registerRefresh.mock.calls.find(c => c[0] === 'ai-catalyst:sync-boards')[1]
+
+    await expect(syncBoardsConfig.handler()).resolves.toEqual({ status: 'skipped', reason: 'feed returned no boards' })
+  })
+
   it('skips syncing when no feed token is configured', async () => {
     const fetchMock = stubFeedFeed({})
     const { handlers } = makeContext({ context: { secrets: {} } })
@@ -825,7 +844,7 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
       'https://showcase.redhataicatalyst.com/feed/boards.json',
       expect.anything()
     )
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok', synced: 0 }))
+    expect(res.json).toHaveBeenCalledWith({ status: 'skipped', reason: 'feed returned no boards' })
   })
 
   it('rejects stored board feed URLs with unapproved origins before fetching', async () => {
@@ -865,7 +884,7 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
       'http://127.0.0.1:4567/feed/boards.json',
       expect.anything()
     )
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok', synced: 0 }))
+    expect(res.json).toHaveBeenCalledWith({ status: 'skipped', reason: 'feed returned no boards' })
   })
 
   it('rejects stored loopback board feed URLs unless POC_EXPLORER_ALLOW_LOOPBACK is set', async () => {
@@ -1072,6 +1091,6 @@ describe('ai-catalyst showcase feed URL resolution', () => {
       'https://boards.example.test/feed/boards.json',
       expect.anything()
     )
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok', synced: 0 }))
+    expect(res.json).toHaveBeenCalledWith({ status: 'skipped', reason: 'feed returned no boards' })
   })
 })
