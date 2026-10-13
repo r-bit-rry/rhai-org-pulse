@@ -90,6 +90,12 @@ Dynamic secrets: `GITLAB_*_TOKEN` — per-instance GitLab tokens configured via 
 Non-secret flag: `POC_EXPLORER_ALLOW_LOOPBACK=1` (ConfigMap) permits loopback feed
 URLs for local development and integration stubs; fail-closed by default.
 
+`POC_EXPLORER_FEED_TOKEN` is provisioned by the cluster administrator into the
+`team-tracker-secrets` Secret (Vault/GitOps) and injected into the backend via the
+`secretKeyRef` in `deploy/openshift/overlays/ai-eng/backend-secrets-patch.yaml` —
+creating the Secret key alone does not expose it to the backend. The two URL
+secrets keep their documented defaults and need no injection.
+
 ### ai-impact
 
 | Env Var | Required | Description |
