@@ -77,6 +77,7 @@ let _cache = null;
  * feed joins with ", " and values from the old sheet era are pipe-joined.
  */
 function parseArrayField(value) {
+  // Cell-level type tolerance is an accepted deviation from fail-closed: the producer stringifies every cell, and envelope+element validation upstream bounds a non-string cell to one field of a validated row.
   if (Array.isArray(value)) {
     return value.map(s => String(s).trim()).filter(Boolean);
   }
