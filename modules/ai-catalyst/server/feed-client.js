@@ -179,4 +179,4 @@ function createFeedClient({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetc
   };
 }
 
-module.exports = { createFeedClient, FeedError, DEFAULT_TIMEOUT_MS };
+module.exports = { createFeedClient, FeedError };
