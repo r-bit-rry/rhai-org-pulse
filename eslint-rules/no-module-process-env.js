@@ -52,9 +52,7 @@ const ALLOWED = new Set([
   'GOOGLE_OAUTH_CALLBACK_URL',
   'VITE_API_BASE_URL',
   // AI Eng: workflow-validation module (OpenSearch endpoint — no auth, non-secret)
-  'WORKFLOW_VALIDATION_OPENSEARCH_URL',
-  // AI Eng: ai-catalyst module (loopback feed opt-in — boolean flag, non-secret)
-  'POC_EXPLORER_ALLOW_LOOPBACK'
+  'WORKFLOW_VALIDATION_OPENSEARCH_URL'
 ])
 
 module.exports = {

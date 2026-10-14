@@ -189,7 +189,9 @@ module.exports = function registerRoutes(router, context) {
 
   // Loopback feed URLs are opt-in: without this flag the token never goes to
   // a local listener, so stored settings cannot exfiltrate it on-loopback.
-  const allowLoopback = process.env.POC_EXPLORER_ALLOW_LOOPBACK === '1';
+  // Declared in module.json (non-secret flag); resolveSecret is the
+  // sanctioned env accessor — module server code never reads process.env.
+  const allowLoopback = context.resolveSecret('POC_EXPLORER_ALLOW_LOOPBACK') === '1';
 
   function getFeedToken() {
     return (secrets && secrets.POC_EXPLORER_FEED_TOKEN) || context.resolveSecret('POC_EXPLORER_FEED_TOKEN') || '';

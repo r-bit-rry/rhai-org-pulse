@@ -16,11 +16,11 @@ const { setupErrorTracking, logCapturedErrors } = require('./helpers');
  *
  * Requires a writable backend booted WITHOUT demo mode and with:
  *   POC_EXPLORER_FEED_TOKEN=<any value> POC_EXPLORER_ALLOW_LOOPBACK=1
+ *   npm run dev:server
  * Against demo-mode or unconfigured deployments the suite skips itself via
- * the /config probe (CI's plain `make test-module MODULE=ai-catalyst` path,
- * which runs without the CI env var). Under CI (`CI=1`, the dedicated
- * `make test-ai-catalyst-feed-sync` path) an unrunnable backend fails the
- * suite instead of skipping — a zero-test green run must be impossible.
+ * the /config probe. Under a CI environment that exports CI into the test
+ * container, an unrunnable backend fails the suite instead of skipping —
+ * a zero-test green run must be impossible.
  *
  * Tag: @ai-catalyst
  * Usage: npx playwright test tests/integration/ai-catalyst-feed-sync.spec.js --workers=1

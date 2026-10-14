@@ -19,9 +19,10 @@ patches:
 - path: route-patch.yaml
 - path: api-route-patch.yaml
 - path: backend-memory-patch.yaml
+- path: chatbot-disable-patch.yaml
 
 images:
 - name: quay.io/org-pulse/team-tracker-backend
-  newTag: be598f8fc9ed85d41d1d9b4f7bc83e0ed5473214
+  newTag: fb9bfbe84aa8ead9f1dd6ebada5663f771daada6
 - name: quay.io/org-pulse/team-tracker-frontend
-  newTag: 09c188db72efb2b645a556ebc1e3fef50061bcba
+  newTag: fb9bfbe84aa8ead9f1dd6ebada5663f771daada6

@@ -36,6 +36,11 @@
         "required": false
       },
       {
+        "key": "POC_EXPLORER_ALLOW_LOOPBACK",
+        "description": "Non-secret flag: set to 1 to allow loopback feed URLs for local development and integration stubs; fail-closed by default",
+        "required": false
+      },
+      {
         "key": "POC_EXPLORER_FEED_TOKEN",
         "description": "Bearer token for the POC Explorer feed endpoints, minted on the POC Explorer VM (FEED_TOKEN in .env) by the platform operators",
         "required": true

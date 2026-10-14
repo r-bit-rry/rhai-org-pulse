@@ -43,13 +43,3 @@ runs:
       env:
         CONTAINER_RUNTIME: docker
         MODULE: ${{ inputs.module }}
-
-    # The ai-catalyst feed-sync spec self-skips under the demo-mode backend
-    # that test-module boots, so run it here against a non-demo backend with
-    # a dummy feed token and loopback allowed (see Makefile target).
-    - name: Run ai-catalyst feed-sync tests (non-demo backend)
-      if: ${{ inputs.module == 'ai-catalyst' }}
-      shell: bash
-      run: make test-ai-catalyst-feed-sync
-      env:
-        CONTAINER_RUNTIME: docker

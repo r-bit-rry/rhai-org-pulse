@@ -192,18 +192,6 @@ MODULE_NAME=ai-impact                   # Choose a testable module
 make test-module MODULE=${MODULE_NAME}  # Runs the integration tests against an existing module
 ```
 
-The ai-catalyst feed-sync spec needs a writable, non-demo backend and skips
-itself under `make test-module`; run it explicitly with:
-
-```bash
-make test-ai-catalyst-feed-sync  # Boots a non-demo backend (dummy token) and runs the feed-sync spec
-```
-
-> [!WARNING]
-> The container test targets run `npm ci` against the bind-mounted workspace,
-> which replaces host-native optional dependencies with Linux bindings. On
-> macOS, run `npm i` afterwards to restore native deps.
-
 Available, testable modules can be found here by name: [tests/integration](./tests/integration/)
 
 ## Deployment

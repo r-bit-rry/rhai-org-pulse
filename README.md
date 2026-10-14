@@ -126,7 +126,6 @@ npm run update:view-owners        # Regenerate platform/view-owners/owners.js fr
 # Container-based tests (requires Docker/Podman)
 make smoke-test                 # Run smoke tests against AI Eng images
 make test-module MODULE=<name>  # Run integration tests for a module
-make test-ai-catalyst-feed-sync # Run ai-catalyst feed-sync tests (non-demo backend)
 ```
 
 ## Tech Stack
