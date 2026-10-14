@@ -87,8 +87,9 @@ Dynamic secrets: `GITLAB_*_TOKEN` — per-instance GitLab tokens configured via 
 | `POC_EXPLORER_FEED_TOKEN` | Yes | Bearer token for all POC Explorer feed endpoints (minted by the POC Explorer operators) |
 | `POC_EXPLORER_SHOWCASE_FEED_URL` | No | Base URL for the POC Explorer showcase feed (defaults to `https://showcase.redhataicatalyst.com`) |
 
-Non-secret flag: `POC_EXPLORER_ALLOW_LOOPBACK=1` (ConfigMap) permits loopback feed
-URLs for local development and integration stubs; fail-closed by default.
+Non-secret flag: `POC_EXPLORER_ALLOW_LOOPBACK=1` (plain environment variable for
+local development and integration stubs) permits loopback feed URLs; fail-closed
+by default.
 
 Feed-URL overrides saved in the module settings UI only sync when their origin
 is operator-approved (`POC_EXPLORER_FEED_URL` / `POC_EXPLORER_SHOWCASE_FEED_URL`

@@ -2690,7 +2690,7 @@ registry below.
 | `source` | string | Primary discovery source (`github`, `hn`, or `reddit`) |
 | `sources` | string[] | All discovery sources for the candidate |
 | `category` | string | Stable strategy-pillar key; must match a pillar key when metadata is available |
-| `capabilityLabels` | string[] | Capability labels parsed from the source sheet |
+| `capabilityLabels` | string[] | Capability labels parsed from the board feed row |
 | `impactScore` | number/null | Impact score from the board evaluation |
 | `feasibilityScore` | number/null | Original feasibility score |
 | `boardFeasibilityScore` | number/null | Board score used for sorting and display |
@@ -2700,7 +2700,7 @@ registry below.
 `data/ai-catalyst/index.json` contains the available month list and candidate
 counts. Adding a new month adds one board file and one index entry. A board
 sync refreshes discovered months in place, so the board file and its
-`lastSynced` value represent the latest source-sheet snapshot rather than an
+`lastSynced` value represent the latest feed snapshot rather than an
 immutable historical record.
 
 Repository files under `fixtures/ai-catalyst/` are deterministic mock data for
