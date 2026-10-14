@@ -421,6 +421,31 @@ describe('fetchShowcaseData', () => {
     expect(storage.writeToStorage).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['slug', { slug: { broken: true } }, {}],
+    ['title', { slug: 'bad', title: { broken: true } }, {}],
+    ['capability_tags', { slug: 'bad', capability_tags: [{ bad: true }, null] }, {}],
+    ['customer_need_tags', { slug: 'bad', customer_need_tags: 42 }, {}],
+    ['pillar_key', {}, { pillar_key: { broken: true } }],
+    ['sort_order', {}, { pillar_key: 'bad', sort_order: [] }],
+  ])('preserves stored and warm cached data when %s has an invalid shape', async (field, entry, pillar) => {
+    stubFeed({ '/feed/showcase.json': FEED_PAYLOAD });
+    const map = new Map();
+    const storage = {
+      writeToStorage: vi.fn(async (key, value) => { map.set(key, value); }),
+      readFromStorage: vi.fn(async key => map.get(key) ?? null),
+    };
+    const previous = await fetchShowcaseData('https://feed.example.test', 'token-123', storage);
+    stubFeed({ '/feed/showcase.json': {
+      showcase_entries: entry.slug ? [entry] : [],
+      strategy_pillars: pillar.pillar_key ? [pillar] : [],
+    } });
+
+    await expect(fetchShowcaseData('https://feed.example.test', 'token-123', storage)).rejects.toThrow(field);
+    expect(map.get(STORAGE_KEY)).toBe(previous);
+    expect(await getShowcaseData('https://feed.example.test', 'token-123', storage)).toBe(previous);
+  });
+
   it('rejects entry rows without a slug instead of silently dropping them', async () => {
     stubFeed({ '/feed/showcase.json': { showcase_entries: [{ title: 'No slug', status: 'active' }], strategy_pillars: [] } });
     const storage = { writeToStorage: vi.fn(async () => {}), readFromStorage: vi.fn(async () => null) };

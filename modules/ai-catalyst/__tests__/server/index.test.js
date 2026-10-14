@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import { createRequire } from 'node:module'
 
 const registerRoutes = (await import('../../server/index.js')).default
+const showcase = createRequire(import.meta.url)('../../server/showcase/feed-sync.js')
 
 const FEED_BOARDS_PAYLOAD = {
   boards: ['board-2026-09', 'board-2026-10'],
@@ -106,7 +108,7 @@ function makeContext(overrides = {}) {
     requireAuth: vi.fn((req, res, next) => next()),
     requireAdmin: vi.fn((req, res, next) => next()),
     requireScope: vi.fn(() => vi.fn((req, res, next) => next())),
-    resolveSecret: vi.fn((key) => process.env[key]),
+    resolveSecret: vi.fn(),
     secrets: { POC_EXPLORER_FEED_TOKEN: 'token-123' },
     registerScopes: vi.fn(),
     registerRefresh: vi.fn(),
@@ -119,6 +121,21 @@ function makeContext(overrides = {}) {
 }
 
 describe('ai-catalyst server module', () => {
+  it.each(['', 'canonical-id'])('only resolves a source-link fallback for a blank producer ID (%j)', async uniqueId => {
+    const link = 'https://github.com/org/legacy'
+    const { handlers } = makeContext({ storage: makeStorage({
+      'ai-catalyst/index.json': { boards: [{ month: '2026-04' }] },
+      'ai-catalyst/boards/2026-04.json': [{ uniqueId, title: 'Legacy project', link }],
+      'ai-catalyst/showcase/showcase-data.json': { entries: [], pillars: [] },
+    }) })
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+
+    await handlers['/candidates/:id']({ params: { id: link } }, res)
+
+    if (uniqueId) expect(res.status).toHaveBeenCalledWith(404)
+    else expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ uniqueId: '', link, title: 'Legacy project' }))
+  })
+
   it('exports a function', () => {
     expect(typeof registerRoutes).toBe('function')
   })
@@ -137,7 +154,7 @@ describe('ai-catalyst server module', () => {
       requireAuth: vi.fn((req, res, next) => next()),
       requireAdmin: vi.fn((req, res, next) => next()),
       requireScope: vi.fn(() => vi.fn((req, res, next) => next())),
-      resolveSecret: vi.fn((key) => process.env[key]),
+      resolveSecret: vi.fn(),
       secrets: {},
       registerScopes: vi.fn(),
       registerRefresh: vi.fn(),
@@ -173,7 +190,7 @@ describe('ai-catalyst server module', () => {
       requireAuth: vi.fn((req, res, next) => next()),
       requireAdmin: vi.fn((req, res, next) => next()),
       requireScope: vi.fn(() => vi.fn((req, res, next) => next())),
-      resolveSecret: vi.fn((key) => process.env[key]),
+      resolveSecret: vi.fn(),
       secrets: {},
       registerScopes: vi.fn(),
       registerRefresh: vi.fn(),
@@ -197,7 +214,7 @@ describe('ai-catalyst server module', () => {
       requireAuth: vi.fn((req, res, next) => next()),
       requireAdmin: vi.fn((req, res, next) => next()),
       requireScope: vi.fn(() => vi.fn((req, res, next) => next())),
-      resolveSecret: vi.fn((key) => process.env[key]),
+      resolveSecret: vi.fn(),
       secrets: {},
       registerScopes: vi.fn(),
       registerRefresh: vi.fn(),
@@ -222,7 +239,7 @@ describe('ai-catalyst server module', () => {
       requireAuth: vi.fn((req, res, next) => next()),
       requireAdmin: vi.fn((req, res, next) => next()),
       requireScope: vi.fn(() => vi.fn((req, res, next) => next())),
-      resolveSecret: vi.fn((key) => process.env[key]),
+      resolveSecret: vi.fn(),
       secrets: {},
       registerScopes: vi.fn(),
       registerRefresh: vi.fn(),
@@ -249,7 +266,7 @@ describe('ai-catalyst server module', () => {
       requireAuth: vi.fn((req, res, next) => next()),
       requireAdmin: vi.fn((req, res, next) => next()),
       requireScope: vi.fn(() => vi.fn((req, res, next) => next())),
-      resolveSecret: vi.fn((key) => process.env[key]),
+      resolveSecret: vi.fn(),
       secrets: {},
       registerScopes: vi.fn(),
       registerRefresh: vi.fn(),
@@ -269,7 +286,7 @@ describe('ai-catalyst server module', () => {
       requireAuth: vi.fn((req, res, next) => next()),
       requireAdmin: vi.fn((req, res, next) => next()),
       requireScope: vi.fn(() => vi.fn((req, res, next) => next())),
-      resolveSecret: vi.fn((key) => process.env[key]),
+      resolveSecret: vi.fn(),
       secrets: {},
       registerScopes: vi.fn(),
       registerRefresh: vi.fn(),
@@ -316,7 +333,7 @@ describe('ai-catalyst server module', () => {
       requireAuth: vi.fn((req, res, next) => next()),
       requireAdmin: vi.fn((req, res, next) => next()),
       requireScope: vi.fn(() => vi.fn((req, res, next) => next())),
-      resolveSecret: vi.fn((key) => process.env[key]),
+      resolveSecret: vi.fn(),
       secrets: {},
       registerScopes: vi.fn(),
       registerRefresh: vi.fn(),
@@ -516,10 +533,13 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
     expect(index.boards.map(b => b.month)).toEqual(['2026-09'])
   })
 
-  it('keeps the cached board when board.json returns a malformed 200', async () => {
+  it.each([
+    ['malformed rows', {}, 'rows'],
+    ['a different board', { ...BOARD_2026_10_PAYLOAD }, 'board-2026-09'],
+  ])('keeps cached data and timestamps when board.json returns %s', async (_label, payload, error) => {
     stubFeedFeed({
       '/feed/boards.json': { boards: ['board-2026-09'] },
-      '/feed/board.json?board=board-2026-09': {},
+      '/feed/board.json?board=board-2026-09': payload,
     })
     const cachedBoard = [{ title: 'Cached Entry', uniqueId: 'org/cached' }]
     const { handlers, storage } = makeContext({
@@ -540,9 +560,11 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
       status: 'ok',
       synced: 0,
       total: 1,
-      failed: [{ board: 'board-2026-09', error: expect.stringContaining('rows') }],
+      failed: [{ board: 'board-2026-09', error: expect.stringContaining(error) }],
     }))
     expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toEqual(cachedBoard)
+    expect(storage.map.get('ai-catalyst/index.json').lastSynced).toBe('2026-09-16T10:00:00Z')
+    expect(storage.map.get('ai-catalyst/index.json').boards[0].lastSynced).toBe('2026-09-16T10:00:00Z')
   })
 
   it('keeps the cached board when board.json serves a valid envelope with non-string cells', async () => {
@@ -582,6 +604,28 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
     const index = storage.map.get('ai-catalyst/index.json')
     expect(index.lastSynced).toBe('2026-09-16T10:00:00Z')
     expect(index.boards[0].lastSynced).toBe('2026-09-16T10:00:00Z')
+  })
+
+  it.each(['', null, '  '])('preserves boards and retries when a non-padding row has no ID or source link (%j)', async identity => {
+    stubFeedFeed({
+      '/feed/boards.json': { boards: ['board-2026-09'] },
+      '/feed/board.json?board=board-2026-09': { count: 1, rows: [{ title: 'Broken', unique_id: identity, link: identity }] },
+    })
+    const cached = [{ uniqueId: 'org/good', title: 'Good candidate' }]
+    const previous = { boards: [{ month: '2026-09', candidateCount: 1, lastSynced: 'before' }], lastSynced: 'before' }
+    const { handlers, context, storage } = makeContext({ storage: makeStorage({
+      'ai-catalyst/boards/2026-09.json': cached,
+      'ai-catalyst/index.json': previous,
+    }) })
+    const res = { json: vi.fn() }
+
+    await handlers['/sync']({}, res)
+
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ synced: 0, failed: [{ board: 'board-2026-09', error: expect.stringContaining('identity') }] }))
+    expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toBe(cached)
+    expect(storage.map.get('ai-catalyst/index.json')).toEqual(previous)
+    const refresh = context.registerRefresh.mock.calls.find(c => c[0] === 'ai-catalyst:sync-boards')[1]
+    await expect(refresh.handler()).rejects.toThrow('identity')
   })
 
   it('rejects the refresh handler when a board serves non-string cells so the registry retries', async () => {
@@ -874,7 +918,7 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
     expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toEqual(cachedBoard)
   })
 
-  it('fails the board and preserves a populated cached month when count is 0', async () => {
+  it('clears a populated cached month when the feed returns a valid empty snapshot', async () => {
     stubFeedFeed({
       '/feed/boards.json': { boards: ['board-2026-09'] },
       '/feed/board.json?board=board-2026-09': { count: 0, rows: [] },
@@ -897,18 +941,16 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
     expect(res.status).not.toHaveBeenCalled()
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       status: 'ok',
-      synced: 0,
+      synced: 1,
       total: 1,
-      failed: [{ board: 'board-2026-09', error: expect.stringContaining('degraded') }],
+      failed: [],
     }))
-    expect(storage.writeToStorage).not.toHaveBeenCalledWith('ai-catalyst/boards/2026-09.json', expect.anything())
-    expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toBe(cachedBoard)
-    expect(storage.map.get('ai-catalyst/index.json')).toEqual(storedIndex)
+    expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toEqual([])
+    expect(storage.map.get('ai-catalyst/index.json').boards[0].candidateCount).toBe(0)
+    expect(storage.map.get('ai-catalyst/index.json').lastSynced).not.toBe(storedIndex.lastSynced)
 
     const syncBoardsConfig = context.registerRefresh.mock.calls.find(c => c[0] === 'ai-catalyst:sync-boards')[1]
-    await expect(syncBoardsConfig.handler()).rejects.toThrow(
-      'Board sync failed for 1/1 boards — board-2026-09:',
-    )
+    await expect(syncBoardsConfig.handler()).resolves.toMatchObject({ status: 'success', synced: 1, failed: [] })
   })
 
   it('accepts a legitimately empty board with count 0 and no rows', async () => {
@@ -1108,8 +1150,18 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ configured: false }))
   })
 
+  it('does not inherit a developer feed token in an unconfigured test context', async () => {
+    vi.stubEnv('POC_EXPLORER_FEED_TOKEN', 'ambient-token-not-for-tests')
+    const { handlers } = makeContext({ context: { secrets: {} } })
+    const res = { json: vi.fn() }
+
+    await handlers['/config']({}, res)
+
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ configured: false }))
+  })
+
   it('saves and reloads the board feed URL override', async () => {
-    const { handlers } = makeContext()
+    const { handlers, storage } = makeContext()
 
     const saveRes = { json: vi.fn(), status: vi.fn().mockReturnThis() }
     await handlers['/board-config'](
@@ -1117,13 +1169,8 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
       saveRes
     )
     expect(saveRes.json).toHaveBeenCalledWith({ status: 'saved' })
-    expect(handlers).toBeDefined()
 
-    const { handlers: reloaded } = makeContext({
-      storage: makeStorage({
-        'ai-catalyst/board-config.json': { feedUrl: 'https://showcase.redhataicatalyst.com' },
-      }),
-    })
+    const { handlers: reloaded } = makeContext({ storage })
     const fetchMock = stubFeedFeed(
       { '/feed/boards.json': { boards: [] } },
       { url: 'https://showcase.redhataicatalyst.com' }
@@ -1157,12 +1204,12 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
   })
 
   it('honors stored loopback board feed URLs when POC_EXPLORER_ALLOW_LOOPBACK is set', async () => {
-    vi.stubEnv('POC_EXPLORER_ALLOW_LOOPBACK', '1')
     const fetchMock = stubFeedFeed(
       { '/feed/boards.json': { boards: [] } },
       { url: 'http://127.0.0.1:4567' }
     )
     const { handlers } = makeContext({
+      context: { resolveSecret: vi.fn(key => key === 'POC_EXPLORER_ALLOW_LOOPBACK' ? '1' : undefined) },
       storage: makeStorage({
         'ai-catalyst/board-config.json': { feedUrl: 'http://127.0.0.1:4567' },
       }),
@@ -1213,6 +1260,56 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
 describe('ai-catalyst showcase feed URL resolution', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    showcase.clearCache()
+    vi.restoreAllMocks()
+  })
+
+  it.each(['manual', 'scheduled'])('preserves warm showcase data after a failed %s refresh and PVC outage', async mode => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    stubFeedFeed({ '/feed/showcase.json': {
+      showcase_entries: [{ slug: 'preserved', title: 'Preserved catalog' }], strategy_pillars: [],
+    } }, { url: 'https://showcase.redhataicatalyst.com' })
+    const storage = makeStorage()
+    showcase.clearCache()
+    await showcase.fetchShowcaseData('https://showcase.redhataicatalyst.com', 'token-123', storage)
+    storage.writeToStorage.mockRejectedValue(new Error('EIO write'))
+    storage.readFromStorage.mockImplementation(async key => {
+      if (key === showcase.STORAGE_KEY) throw new Error('EIO read')
+      return null
+    })
+    const { handlers, context } = makeContext({ storage })
+    if (mode === 'manual') {
+      const failed = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+      await handlers['/showcase/refresh']({}, failed)
+      expect(failed.status).toHaveBeenCalledWith(500)
+    } else {
+      const refresh = context.registerRefresh.mock.calls.find(c => c[0] === 'ai-catalyst:showcase-sync')[1]
+      await expect(refresh.handler()).rejects.toThrow('EIO write')
+    }
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/showcase/entries']({}, res)
+
+    expect(res.status).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ entries: [expect.objectContaining({ slug: 'preserved' })] }))
+  })
+
+  it.each(['/showcase/entries', '/showcase/entries/:slug'])('serves %s from warm memory when every storage read fails', async route => {
+    stubFeedFeed({ '/feed/showcase.json': {
+      showcase_entries: [{ slug: 'preserved', title: 'Preserved catalog' }], strategy_pillars: [],
+    } }, { url: 'https://showcase.redhataicatalyst.com' })
+    const storage = makeStorage()
+    showcase.clearCache()
+    await showcase.fetchShowcaseData('https://showcase.redhataicatalyst.com', 'token-123', storage)
+    storage.readFromStorage.mockRejectedValue(new Error('EIO read'))
+    const { handlers } = makeContext({ storage })
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+
+    await handlers[route]({ params: { slug: 'preserved' } }, res)
+
+    expect(res.status).not.toHaveBeenCalled()
+    expect(res.json.mock.calls[0][0]).toMatchObject(route.endsWith(':slug')
+      ? { entry: { slug: 'preserved' } } : { entries: [{ slug: 'preserved' }] })
   })
 
   it('defaults the showcase feed to the showcase host', async () => {

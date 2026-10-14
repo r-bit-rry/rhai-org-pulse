@@ -24,20 +24,6 @@ function parseJsonBody(text) {
 }
 
 /**
- * Reject with an AbortError when the signal fires, so a stalled response
- * body cannot outlive the configured timeout.
- */
-function abortRejection(signal) {
-  return new Promise((_, reject) => {
-    signal.addEventListener('abort', () => {
-      const err = new Error('The operation was aborted');
-      err.name = 'AbortError';
-      reject(err);
-    });
-  });
-}
-
-/**
  * Validate the feed destination BEFORE the bearer token leaves the process:
  * HTTPS only (except opt-in loopback), and — when callers pass an allowlist —
  * only operator-approved origins. A URL from stored module settings must land
@@ -92,7 +78,7 @@ function createFeedClient({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetc
         headers: { Authorization: `Bearer ${token}` },
         signal: controller.signal,
       });
-      const text = await Promise.race([response.text(), abortRejection(controller.signal)]);
+      const text = await response.text();
       const body = parseJsonBody(text);
 
       if (response.status === 401) {
@@ -142,6 +128,9 @@ function createFeedClient({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetc
     },
     async getBoard(name) {
       const body = await request(`/feed/board.json?board=${encodeURIComponent(name)}`);
+      if (body.name !== undefined && body.name !== name) {
+        throw new FeedError(`unexpected board name from /feed/board.json — expected ${name}`);
+      }
       if (!Array.isArray(body.rows)) {
         throw new FeedError('unexpected response shape from /feed/board.json — expected a "rows" array');
       }

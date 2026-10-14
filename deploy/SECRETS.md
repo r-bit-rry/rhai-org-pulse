@@ -95,12 +95,13 @@ Feed-URL overrides saved in the module settings UI only sync when their origin
 is operator-approved (`POC_EXPLORER_FEED_URL` / `POC_EXPLORER_SHOWCASE_FEED_URL`
 or the documented defaults); any other origin fails closed.
 
-`POC_EXPLORER_FEED_TOKEN` is provisioned and injected by the cluster
-administrator through the environment's GitOps configuration (Vault →
-`team-tracker-secrets` → backend `secretKeyRef`/`envFrom`, following the
-Workflow Validation OpenSearch pattern) — creating the Secret key alone does
-not expose it to the backend. The two URL secrets keep their documented
-defaults and need no injection.
+`POC_EXPLORER_FEED_TOKEN` must be provisioned into the cluster Secret and
+injected into the backend container by the environment's GitOps
+administrator (e.g. a `secretKeyRef`/`envFrom` entry alongside the existing
+`team-tracker-secrets` injections) — this PR deliberately adds no deployment
+overlay wiring for it, and creating the Secret key alone does not expose it
+to the backend. The two URL secrets keep their documented defaults and need
+no injection.
 
 ### ai-impact
 

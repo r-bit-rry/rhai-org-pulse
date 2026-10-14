@@ -2,7 +2,6 @@ const { createFeedClient } = require('./feed-client');
 const {
   getShowcaseData,
   fetchShowcaseData,
-  clearCache: clearShowcaseCache,
   STORAGE_KEY: SHOWCASE_STORAGE_KEY,
   getReferencedPillarKeys,
   mergePillarMetadata,
@@ -190,7 +189,8 @@ module.exports = function registerRoutes(router, context) {
   // Loopback feed URLs are opt-in: without this flag the token never goes to
   // a local listener, so stored settings cannot exfiltrate it on-loopback.
   // Declared in module.json (non-secret flag); resolveSecret is the
-  // sanctioned env accessor — module server code never reads process.env.
+  // sanctioned env accessor — module server code never reads secrets
+  // from process.env.
   const allowLoopback = context.resolveSecret('POC_EXPLORER_ALLOW_LOOPBACK') === '1';
 
   function getFeedToken() {
@@ -332,15 +332,11 @@ module.exports = function registerRoutes(router, context) {
         try {
           const payload = await client.getBoard(boardName);
           const candidates = parseBoardRows(payload.rows);
-          // An empty parse is only legitimate for a month with no populated
-          // cache: all-empty rows passing the count check is a degraded
-          // board, and a shape-valid count:0 board must not wipe a month
-          // that already stores candidates.
-          if (candidates.length === 0) {
-            const cached = await readBoard(month);
-            if (payload.count > 0 || (Array.isArray(cached) && cached.length > 0)) {
-              throw new Error(`degraded board payload — reported ${payload.count} rows but none parsed into candidates`);
-            }
+          if (candidates.some(candidate => !candidate.uniqueId && !candidate.link)) {
+            throw new Error('invalid candidate identity — expected a unique_id or source link');
+          }
+          if (candidates.length === 0 && payload.count > 0) {
+            throw new Error(`degraded board payload — reported ${payload.count} rows but none parsed into candidates`);
           }
           await writeToStorage(`${STORAGE_PREFIX}/boards/${month}.json`, candidates);
           syncCount++;
@@ -528,7 +524,7 @@ module.exports = function registerRoutes(router, context) {
    *         required: true
    *         schema:
    *           type: string
-   *         description: Candidate unique_id
+    *         description: Candidate unique_id, or source link for legacy rows without an ID
    *     responses:
    *       200:
    *         description: Candidate details with the resolved strategy pillar metadata
@@ -543,7 +539,7 @@ module.exports = function registerRoutes(router, context) {
     for (const month of months) {
       const candidates = DEMO_MODE ? getDemoBoard(month) : await readBoard(month);
       if (!Array.isArray(candidates)) continue;
-      const found = candidates.find(c => c.uniqueId === id);
+      const found = candidates.find(c => c.uniqueId === id || (!c.uniqueId && c.link === id));
       if (found) {
         const showcaseData = await loadPillarData();
         const pillar = getBoardPillars([found], showcaseData)
@@ -641,7 +637,7 @@ module.exports = function registerRoutes(router, context) {
     try {
       if (await isConfigured()) {
         return normalizeShowcaseData(
-          await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback),
+          await getShowcaseData(getShowcaseFeedUrl, getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback),
         );
       }
     } catch (err) {
@@ -702,7 +698,7 @@ module.exports = function registerRoutes(router, context) {
       if (DEMO_MODE || !(await isConfigured())) {
         data = await loadShowcaseDemoData();
       } else {
-        data = await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback);
+        data = await getShowcaseData(getShowcaseFeedUrl, getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback);
       }
 
       data = normalizeShowcaseData(data);
@@ -747,7 +743,7 @@ module.exports = function registerRoutes(router, context) {
       if (DEMO_MODE || !(await isConfigured())) {
         data = await loadShowcaseDemoData();
       } else {
-        data = await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback);
+        data = await getShowcaseData(getShowcaseFeedUrl, getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback);
       }
 
       data = normalizeShowcaseData(data);
@@ -787,7 +783,6 @@ module.exports = function registerRoutes(router, context) {
     }
 
     try {
-      clearShowcaseCache();
       const data = await fetchShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback);
       res.json({
         status: 'refreshed',
@@ -835,7 +830,6 @@ module.exports = function registerRoutes(router, context) {
         // the skip shape keeps the handler due for the next tick.
         if (DEMO_MODE) return { status: 'skipped', reason: 'demo mode' };
         if (!(await isConfigured())) return { status: 'skipped', reason: 'not configured' };
-        clearShowcaseCache();
         await fetchShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback);
       },
     });

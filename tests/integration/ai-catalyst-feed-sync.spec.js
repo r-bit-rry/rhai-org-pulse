@@ -1,30 +1,81 @@
-const { test, expect } = require('@playwright/test');
+const { test: base, expect } = require('@playwright/test');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const express = require('express');
+const storage = require('../../shared/server/storage');
+const { createTestContext } = require('../../shared/server/module-context');
 const { setupErrorTracking, logCapturedErrors } = require('./helpers');
 
 /**
  * Integration tests for the AI Catalyst feed sync against a local stub
  *
- * Each test starts its own plain-HTTP feed stub on an ephemeral loopback port
- * and seeds its own state (configure the stub via the config API, then run
- * one successful sync), so no test depends on another test's leftovers. The
- * suite runs in order in a single worker (mode: 'default' overrides the
- * repo-wide fullyParallel setting) because every test shares the backend's
- * writable storage — but a failure never skips the remaining tests.
- *
- * Requires a writable backend booted WITHOUT demo mode and with:
- *   POC_EXPLORER_FEED_TOKEN=<any value> POC_EXPLORER_ALLOW_LOOPBACK=1
- *   npm run dev:server
- * Against demo-mode or unconfigured deployments the suite skips itself via
- * the /config probe. Under a CI environment that exports CI into the test
- * container, an unrunnable backend fails the suite instead of skipping —
- * a zero-test green run must be impossible.
+ * Each test owns a non-demo Express backend, temporary storage, a dummy
+ * credential and a loopback feed stub. Browser module requests are routed
+ * to that backend; BASE_URL is only used to load the frontend shell.
+ * No configured deployment or developer data is changed, and no feed tests
+ * skip themselves when the frontend shell uses demo mode.
  *
  * Tag: @ai-catalyst
  * Usage: npx playwright test tests/integration/ai-catalyst-feed-sync.spec.js --workers=1
  */
+
+const test = base.extend({
+  backend: async ({ playwright }, use) => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-catalyst-feed-'));
+    const previousDataDir = storage.DATA_DIR;
+    const previousDemoMode = process.env.DEMO_MODE;
+    process.env.DEMO_MODE = 'false';
+    const registerPath = require.resolve('../../modules/ai-catalyst/server');
+    delete require.cache[registerPath];
+    const registerRoutes = require(registerPath);
+    if (previousDemoMode === undefined) delete process.env.DEMO_MODE;
+    else process.env.DEMO_MODE = previousDemoMode;
+    const { clearCache } = require('../../modules/ai-catalyst/server/showcase/feed-sync');
+    storage.initStorage({ dataDir });
+    clearCache();
+    const app = express();
+    app.use(express.json());
+    const router = express.Router();
+    registerRoutes(router, createTestContext({
+      storage,
+      secrets: { POC_EXPLORER_FEED_TOKEN: 'integration-dummy-token' },
+      resolveSecret: key => key === 'POC_EXPLORER_ALLOW_LOOPBACK' ? '1' : undefined,
+      requireAdmin: (req, res, next) => req.get('authorization') === 'Bearer integration-admin'
+        ? next() : res.status(403).json({ error: 'Admin required' }),
+    }));
+    app.use('/api/modules/ai-catalyst', router);
+    const server = http.createServer(app);
+    let request;
+    try {
+      await new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', resolve);
+      });
+      const baseUrl = `http://127.0.0.1:${server.address().port}`;
+      request = await playwright.request.newContext({
+        baseURL: baseUrl, extraHTTPHeaders: { Authorization: 'Bearer integration-admin' },
+      });
+      await use({ request, baseUrl, dataDir });
+    } finally {
+      if (request) await request.dispose();
+      if (server.listening) await new Promise(resolve => server.close(resolve));
+      clearCache();
+      storage.initStorage({ dataDir: previousDataDir });
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
+  },
+  request: async ({ backend }, use) => use(backend.request),
+  page: async ({ page, backend }, use) => {
+    await page.route('**/api/modules/ai-catalyst/**', async route => {
+      const url = new URL(route.request().url());
+      const response = await route.fetch({ url: backend.baseUrl + url.pathname + url.search });
+      await route.fulfill({ response });
+    });
+    await use(page);
+  },
+});
 
 const STUB_BOARD_MONTH = '2026-04';
 const STUB_BOARD_PAYLOAD = {
@@ -77,7 +128,8 @@ function startFeedStub() {
   const stub = {
     requests: [],
     malformedBoards: new Set(),
-    malformedShowcase: false,
+    showcasePayload: null,
+    boardPayload: structuredClone(STUB_BOARD_PAYLOAD),
     baseUrl: null,
     server: null,
   };
@@ -99,10 +151,10 @@ function startFeedStub() {
     if (url.pathname === '/feed/board.json') {
       const board = url.searchParams.get('board');
       if (stub.malformedBoards.has(board)) return send(200, {});
-      return send(200, STUB_BOARD_PAYLOAD);
+      return send(200, stub.boardPayload);
     }
     if (url.pathname === '/feed/showcase.json') {
-      if (stub.malformedShowcase) return send(200, { showcase_entries: [null], strategy_pillars: [] });
+      if (stub.showcasePayload) return send(200, stub.showcasePayload);
       return send(200, {
         showcase_entries: [...toFeedRows(fixtureShowcase.entries, SHOWCASE_ENTRY_FEED_KEYS), STUB_SHOWCASE_MARKER_ENTRY],
         strategy_pillars: toFeedRows(fixtureShowcase.pillars, SHOWCASE_PILLAR_FEED_KEYS),
@@ -121,73 +173,17 @@ function startFeedStub() {
   });
 }
 
-const AI_CATALYST_DATA_DIR = path.join(__dirname, '..', '..', 'data', 'ai-catalyst');
-const SYNC_TOUCHED_FILES = [
-  'index.json',
-  'board-config.json',
-  'showcase/showcase-data.json',
-  'showcase/config.json',
-  `boards/${STUB_BOARD_MONTH}.json`,
-];
-
-function snapshotDataState() {
-  const snapshot = { existing: {}, absent: [] };
-  for (const rel of SYNC_TOUCHED_FILES) {
-    const file = path.join(AI_CATALYST_DATA_DIR, rel);
-    if (fs.existsSync(file)) snapshot.existing[rel] = fs.readFileSync(file);
-    else snapshot.absent.push(rel);
-  }
-  return snapshot;
-}
-
-function restoreDataState(snapshot) {
-  for (const rel of snapshot.absent) {
-    const file = path.join(AI_CATALYST_DATA_DIR, rel);
-    if (fs.existsSync(file)) fs.rmSync(file);
-  }
-  for (const [rel, contents] of Object.entries(snapshot.existing)) {
-    fs.writeFileSync(path.join(AI_CATALYST_DATA_DIR, rel), contents);
-  }
-}
-
 test.describe('AI Catalyst feed sync (local stub) @ai-catalyst', () => {
-  // Shared backend storage forces in-order single-worker execution, but
-  // unlike serial mode a failure here never skips the remaining tests.
   test.describe.configure({ mode: 'default' });
 
-  let environment = null;
-  let dataSnapshot = null;
   let stub = null;
 
-  test.beforeAll(async ({ request }) => {
-    dataSnapshot = snapshotDataState();
-    const res = await request.get('/api/modules/ai-catalyst/config');
-    environment = res.ok() ? await res.json() : null;
-  });
-
-  test.afterAll(() => {
-    if (dataSnapshot) restoreDataState(dataSnapshot);
-  });
-
   test.beforeEach(async () => {
-    const unrunnable = !environment || environment.demoMode || !environment.configured;
-    if (unrunnable) {
-      if (process.env.CI) {
-        // A skip exits 0, and test.fail() only marks an *expected* failure
-        // (also exit 0) — failing the hook is what makes CI actually red
-        // when this suite cannot run.
-        throw new Error(
-          'feed-sync tests cannot run under CI: the backend is demo-mode or unconfigured '
-          + `(${JSON.stringify(environment)}) — make test-ai-catalyst-feed-sync must boot a non-demo backend with POC_EXPLORER_FEED_TOKEN`,
-        );
-      }
-      test.skip(true, 'feed sync tests need a writable (non-demo) backend with POC_EXPLORER_FEED_TOKEN configured');
-    }
     stub = await startFeedStub();
   });
 
-  test.afterEach(() => {
-    if (stub && stub.server && stub.server.listening) stub.server.close();
+  test.afterEach(async () => {
+    if (stub && stub.server.listening) await new Promise(resolve => stub.server.close(resolve));
   });
 
   // Seed helper: point the module at this test's own stub and run one
@@ -209,7 +205,7 @@ test.describe('AI Catalyst feed sync (local stub) @ai-catalyst', () => {
     expect(await syncRes.json()).toMatchObject({ status: 'ok', synced: 1, total: 1, failed: [] });
   }
 
-  test('should save the stub feed URL through the board config API', async ({ request }) => {
+  test('should save the stub feed URL through the board config API', async ({ request, backend }) => {
     const saveRes = await request.post('/api/modules/ai-catalyst/board-config', {
       data: { feedUrl: stub.baseUrl },
     });
@@ -218,6 +214,8 @@ test.describe('AI Catalyst feed sync (local stub) @ai-catalyst', () => {
 
     const configRes = await request.get('/api/modules/ai-catalyst/board-config');
     expect(await configRes.json()).toEqual({ feedUrl: stub.baseUrl });
+    expect(JSON.parse(fs.readFileSync(path.join(backend.dataDir, 'ai-catalyst/board-config.json'), 'utf8')))
+      .toEqual({ feedUrl: stub.baseUrl });
 
     const statusRes = await request.get('/api/modules/ai-catalyst/config');
     expect(await statusRes.json()).toMatchObject({ configured: true, demoMode: false });
@@ -228,8 +226,7 @@ test.describe('AI Catalyst feed sync (local stub) @ai-catalyst', () => {
 
     const boardRequests = stub.requests.filter(r => r.path.includes('/feed/board.json'));
     expect(boardRequests).toHaveLength(1);
-    expect(boardRequests[0].auth.startsWith('Bearer ')).toBe(true);
-    expect(boardRequests[0].auth.length).toBeGreaterThan('Bearer '.length);
+    expect(boardRequests[0].auth).toBe('Bearer integration-dummy-token');
 
     const boardsRes = await request.get('/api/modules/ai-catalyst/boards');
     const { boards } = await boardsRes.json();
@@ -254,6 +251,64 @@ test.describe('AI Catalyst feed sync (local stub) @ai-catalyst', () => {
       gpuRequired: true,
       hasDockerfile: true,
     });
+  });
+
+  test('should clear old candidates when the feed returns a valid empty snapshot', async ({ request }) => {
+    await seedSyncedBoard(request);
+    stub.boardPayload = { name: `board-${STUB_BOARD_MONTH}`, count: 0, rows: [] };
+
+    const result = await request.post('/api/modules/ai-catalyst/sync');
+
+    expect(await result.json()).toMatchObject({ synced: 1, failed: [] });
+    const board = await request.get(`/api/modules/ai-catalyst/boards/${STUB_BOARD_MONTH}`);
+    expect(await board.json()).toMatchObject({ total: 0, candidates: [] });
+  });
+
+  test('should preserve the requested month when the response names another board', async ({ request, backend }) => {
+    await seedSyncedBoard(request);
+    const boardFile = path.join(backend.dataDir, `ai-catalyst/boards/${STUB_BOARD_MONTH}.json`);
+    const before = fs.readFileSync(boardFile);
+    stub.boardPayload.name = 'board-2026-10';
+
+    const result = await request.post('/api/modules/ai-catalyst/sync');
+
+    expect(await result.json()).toMatchObject({ synced: 0, failed: [{ board: `board-${STUB_BOARD_MONTH}`, error: expect.stringContaining('board name') }] });
+    expect(fs.readFileSync(boardFile)).toEqual(before);
+  });
+
+  test('should preserve usable candidates when a row has neither an ID nor source link', async ({ request }) => {
+    await seedSyncedBoard(request);
+    stub.boardPayload.rows[0].unique_id = '';
+    stub.boardPayload.rows[0].link = '';
+
+    const result = await request.post('/api/modules/ai-catalyst/sync');
+
+    expect(await result.json()).toMatchObject({ synced: 0, failed: [{ error: expect.stringContaining('identity') }] });
+    const board = await request.get(`/api/modules/ai-catalyst/boards/${STUB_BOARD_MONTH}`);
+    expect((await board.json()).candidates[0].uniqueId).toBe('org/stub-candidate');
+  });
+
+  test('should open legacy candidates with no producer ID using their source link', async ({ page, request }) => {
+    stub.boardPayload.rows[0].unique_id = '';
+    stub.boardPayload.rows[0].link = 'https://github.com/org/legacy';
+    await seedSyncedBoard(request);
+
+    await page.goto('/#/ai-catalyst/board');
+    await page.locator('main .grid h3').filter({ hasText: 'Stub Board Candidate' }).click();
+
+    await expect(page.locator('main h1')).toHaveText('Stub Board Candidate');
+    const detail = await request.get(`/api/modules/ai-catalyst/candidates/${encodeURIComponent('https://github.com/org/legacy')}`);
+    expect(await detail.json()).toMatchObject({ uniqueId: '', link: 'https://github.com/org/legacy' });
+  });
+
+  test('should reject non-admin configuration and refresh requests', async ({ request }) => {
+    for (const route of ['board-config', 'showcase/config', 'sync', 'showcase/refresh']) {
+      const response = await request.post(`/api/modules/ai-catalyst/${route}`, {
+        headers: { Authorization: 'Bearer integration-reader' }, data: { feedUrl: stub.baseUrl },
+      });
+      expect(response.status()).toBe(403);
+    }
+    expect(stub.requests).toHaveLength(0);
   });
 
   test('should keep synced board data when the feed serves a malformed 200', async ({ request }) => {
@@ -313,28 +368,28 @@ test.describe('AI Catalyst feed sync (local stub) @ai-catalyst', () => {
     logCapturedErrors(page, { title: 'render synced board data' });
   });
 
-  test('should sync the showcase from the stub and render it in the catalog', async ({ page }) => {
+  test('should sync the showcase from the stub and render it in the catalog', async ({ page, request, backend }) => {
     test.setTimeout(120000);
     setupErrorTracking(page);
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
-    const saveRes = await page.request.post('/api/modules/ai-catalyst/showcase/config', {
+    const saveRes = await request.post('/api/modules/ai-catalyst/showcase/config', {
       data: { feedUrl: stub.baseUrl },
     });
     expect(saveRes.ok()).toBe(true);
 
-    const refreshRes = await page.request.post('/api/modules/ai-catalyst/showcase/refresh');
+    const refreshRes = await request.post('/api/modules/ai-catalyst/showcase/refresh');
     expect(refreshRes.ok()).toBe(true);
     expect(await refreshRes.json()).toMatchObject({ status: 'refreshed', entries: 5, pillars: 5 });
     expect(stub.requests.some(r => r.path.includes('/feed/showcase.json'))).toBe(true);
 
-    const entriesRes = await page.request.get('/api/modules/ai-catalyst/showcase/entries');
+    const entriesRes = await request.get('/api/modules/ai-catalyst/showcase/entries');
     const entriesData = await entriesRes.json();
     expect(entriesData.entries.map(e => e.slug)).toContain('stub-synced-entry');
 
     const persisted = JSON.parse(fs.readFileSync(
-      path.join(AI_CATALYST_DATA_DIR, 'showcase/showcase-data.json'), 'utf-8',
+      path.join(backend.dataDir, 'ai-catalyst/showcase/showcase-data.json'), 'utf-8',
     ));
     expect(persisted.entries.map(e => e.slug)).toContain('stub-synced-entry');
 
@@ -348,48 +403,47 @@ test.describe('AI Catalyst feed sync (local stub) @ai-catalyst', () => {
     logCapturedErrors(page, { title: 'render synced showcase data' });
   });
 
-  test('should keep the stored showcase catalog when the feed serves malformed rows', async ({ page, request }) => {
-    test.setTimeout(120000);
+  for (const [field, rows] of [
+    ['showcase_entries', [null]],
+    ['slug', [{ slug: { broken: true } }]],
+    ['capability_tags', [{ slug: 'bad-tags', capability_tags: [{}] }]],
+  ]) {
+    test(`should preserve the showcase catalog when ${field} is malformed`, async ({ page, request, backend }) => {
+      test.setTimeout(120000);
 
-    // Seed: point the showcase feed at this test's own stub and run one
-    // successful refresh, so the test starts from known state.
-    const saveRes = await request.post('/api/modules/ai-catalyst/showcase/config', {
-      data: { feedUrl: stub.baseUrl },
+      const saveRes = await request.post('/api/modules/ai-catalyst/showcase/config', {
+        data: { feedUrl: stub.baseUrl },
+      });
+      expect(saveRes.ok()).toBe(true);
+      const refreshRes = await request.post('/api/modules/ai-catalyst/showcase/refresh');
+      expect(refreshRes.ok()).toBe(true);
+      expect(await refreshRes.json()).toMatchObject({ status: 'refreshed', entries: 5, pillars: 5 });
+
+      const showcaseFile = path.join(backend.dataDir, 'ai-catalyst/showcase/showcase-data.json');
+      const bytesBefore = fs.readFileSync(showcaseFile);
+      stub.showcasePayload = { showcase_entries: rows, strategy_pillars: [] };
+      // Make an accidental timestamp rewrite observable.
+      await new Promise(resolve => setTimeout(resolve, 25));
+
+      const failedRefresh = await request.post('/api/modules/ai-catalyst/showcase/refresh');
+      expect(failedRefresh.status()).toBe(500);
+      expect((await failedRefresh.json()).details).toContain(field);
+      expect(fs.readFileSync(showcaseFile)).toEqual(bytesBefore);
+
+      const entriesRes = await request.get('/api/modules/ai-catalyst/showcase/entries');
+      expect(entriesRes.ok()).toBe(true);
+      expect((await entriesRes.json()).entries.map(e => e.slug)).toContain('stub-synced-entry');
+
+      setupErrorTracking(page);
+      await page.goto('/#/ai-catalyst/catalog');
+      await page.waitForLoadState('networkidle');
+      await expect(page.locator('main .grid h3').filter({ hasText: 'Stub Synced Showcase Entry' })).toBeVisible({ timeout: 30000 });
+
+      const appErrors = page.errors.filter(e => !/status of (429|404)/.test(e.message));
+      expect(appErrors).toHaveLength(0);
+      logCapturedErrors(page, { title: 'render preserved showcase data' });
     });
-    expect(saveRes.ok()).toBe(true);
-    const refreshRes = await request.post('/api/modules/ai-catalyst/showcase/refresh');
-    expect(refreshRes.ok()).toBe(true);
-    expect(await refreshRes.json()).toMatchObject({ status: 'refreshed', entries: 5, pillars: 5 });
-
-    const showcaseFile = path.join(AI_CATALYST_DATA_DIR, 'showcase/showcase-data.json');
-    const bytesBefore = fs.readFileSync(showcaseFile);
-
-    stub.malformedShowcase = true;
-    // Ensure a re-stamped timestamp would differ from the captured bytes.
-    await new Promise(resolve => setTimeout(resolve, 25));
-
-    const failedRefresh = await request.post('/api/modules/ai-catalyst/showcase/refresh');
-    expect(failedRefresh.status()).toBe(500);
-    expect((await failedRefresh.json()).details).toContain('showcase_entries');
-
-    // The stored catalog and its timestamps are byte-identical.
-    expect(fs.readFileSync(showcaseFile)).toEqual(bytesBefore);
-
-    // Reads still serve the preserved catalog.
-    const entriesRes = await request.get('/api/modules/ai-catalyst/showcase/entries');
-    expect(entriesRes.ok()).toBe(true);
-    expect((await entriesRes.json()).entries.map(e => e.slug)).toContain('stub-synced-entry');
-
-    // Rendering is intact.
-    setupErrorTracking(page);
-    await page.goto('/#/ai-catalyst/catalog');
-    await page.waitForLoadState('networkidle');
-    await expect(page.locator('main .grid h3').filter({ hasText: 'Stub Synced Showcase Entry' })).toBeVisible({ timeout: 30000 });
-
-    const appErrors = page.errors.filter(e => !/status of (429|404)/.test(e.message));
-    expect(appErrors).toHaveLength(0);
-    logCapturedErrors(page, { title: 'render preserved showcase data' });
-  });
+  }
 
   test('should reject feed URLs with unapproved origins before fetching', async ({ request }) => {
     const saveRes = await request.post('/api/modules/ai-catalyst/board-config', {

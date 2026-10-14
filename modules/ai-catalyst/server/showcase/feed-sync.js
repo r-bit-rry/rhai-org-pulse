@@ -80,10 +80,8 @@ let _cache = null;
  * feed joins with ", " and values from the old sheet era are pipe-joined.
  */
 function parseArrayField(value) {
-  // The showcase path has no upstream cell validation: non-array cells are
-  // stringified by mapRow, and array cells route through here.
   if (Array.isArray(value)) {
-    return value.map(s => String(s).trim()).filter(Boolean);
+    return value.map(s => s.trim()).filter(Boolean);
   }
   if (!value || typeof value !== 'string') return [];
   const parts = value.includes('|') ? value.split('|') : value.split(', ');
@@ -96,8 +94,14 @@ function mapRow(row, columnMap) {
   for (const [header, key] of Object.entries(columnMap)) {
     const raw = source[header];
     if (ARRAY_FIELDS.has(key)) {
+      if (raw != null && typeof raw !== 'string' && !(Array.isArray(raw) && raw.every(s => typeof s === 'string'))) {
+        throw new FeedError(`invalid showcase field "${header}" — expected a string or an array of strings`);
+      }
       obj[key] = parseArrayField(raw);
     } else {
+      if (raw != null && typeof raw === 'object') {
+        throw new FeedError(`invalid showcase field "${header}" — expected a scalar value`);
+      }
       let val = String(raw === undefined || raw === null ? '' : raw).trim();
       if (key === 'sortOrder') {
         const n = parseInt(val, 10);
@@ -253,7 +257,9 @@ async function getShowcaseData(baseUrl, token, storage, allowedOrigins, allowLoo
   }
 
   try {
-    return await fetchShowcaseData(baseUrl, token, storage, allowedOrigins, allowLoopback, timeoutMs);
+    // A warm cache must not depend on reading configuration from the PVC.
+    const url = typeof baseUrl === 'function' ? await baseUrl() : baseUrl;
+    return await fetchShowcaseData(url, token, storage, allowedOrigins, allowLoopback, timeoutMs);
   } catch (err) {
     if (_cache) {
       console.error('[ai-catalyst:showcase] Feed fetch failed, using cached data:', err.message);

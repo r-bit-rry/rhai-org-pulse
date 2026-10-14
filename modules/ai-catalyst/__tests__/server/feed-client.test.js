@@ -54,6 +54,13 @@ describe('createFeedClient', () => {
     });
   });
 
+  it('rejects a response naming a different board', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(200, { name: 'board-2026-10', count: 0, rows: [] }));
+    const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn });
+
+    await expect(client.getBoard('board-2026-09')).rejects.toThrow('board-2026-09');
+  });
+
   it('maps 401 to an actionable unauthorized error', async () => {
     const fetchFn = vi.fn(async () => jsonResponse(401, { error: 'unauthorized' }));
     const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 'bad', fetchFn });
@@ -100,10 +107,12 @@ describe('createFeedClient', () => {
   });
 
   it('times out when the response body stalls after headers arrive', async () => {
-    const fetchFn = vi.fn(async () => ({
+    const fetchFn = vi.fn(async (_url, { signal }) => ({
       ok: true,
       status: 200,
-      text: () => new Promise(() => {}),
+      text: () => new Promise((_, reject) => {
+        signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+      }),
     }));
     const client = createFeedClient({ baseUrl: 'https://feed.example.test', token: 't', fetchFn, timeoutMs: 20 });
 
