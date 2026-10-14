@@ -7,6 +7,7 @@ const {
   getReferencedPillarKeys,
   mergePillarMetadata,
   normalizeShowcaseData,
+  parseArrayField,
 } = require('./showcase/feed-sync');
 const { getConfig: getShowcaseConfig, saveConfig: saveShowcaseConfig } = require('./showcase/config');
 const { getConfig: getBoardConfig, saveConfig: saveBoardConfig } = require('./board-config');
@@ -46,18 +47,6 @@ function snakeToCamel(str) {
   return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 }
 
-function parseListValue(value) {
-  // Cell-level type tolerance is an accepted deviation from fail-closed: the producer stringifies every cell, and envelope+element validation upstream bounds a non-string cell to one field of a validated row.
-  if (Array.isArray(value)) {
-    return value.map(s => String(s).trim()).filter(Boolean);
-  }
-  if (!value || typeof value !== 'string') return [];
-  // Feed rows join list columns with ", "; pipe-joined values from the old
-  // sheet era are still accepted.
-  const parts = value.includes('|') ? value.split('|') : value.split(', ');
-  return parts.map(s => s.trim()).filter(Boolean);
-}
-
 /**
  * Map one feed row (object keyed by snake_case column) to the camelCase
  * candidate contract. Board feed rows stringify every value to former-sheet
@@ -71,7 +60,7 @@ function parseFeedRow(row) {
     const val = typeof raw === 'string' ? raw.trim() : raw;
 
     if (LIST_FIELDS.has(key)) {
-      obj[camel] = parseListValue(raw);
+      obj[camel] = parseArrayField(raw);
     } else if (NUMERIC_FIELDS.has(key)) {
       const n = Number(val);
       obj[camel] = (val === '' || val === null || val === undefined) ? null : (Number.isFinite(n) ? n : null);
