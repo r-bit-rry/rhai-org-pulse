@@ -77,7 +77,8 @@ let _cache = null;
  * feed joins with ", " and values from the old sheet era are pipe-joined.
  */
 function parseArrayField(value) {
-  // Cell-level type tolerance is an accepted deviation from fail-closed: the producer stringifies every cell, and envelope+element validation upstream bounds a non-string cell to one field of a validated row.
+  // The showcase path has no upstream cell validation: non-array cells are
+  // stringified by mapRow, and array cells route through here.
   if (Array.isArray(value)) {
     return value.map(s => String(s).trim()).filter(Boolean);
   }
@@ -94,8 +95,7 @@ function mapRow(row, columnMap) {
     if (ARRAY_FIELDS.has(key)) {
       obj[key] = parseArrayField(raw);
     } else {
-      let val = raw === undefined || raw === null ? '' : raw;
-      if (typeof val !== 'number') val = String(val).trim();
+      let val = String(raw === undefined || raw === null ? '' : raw).trim();
       if (key === 'sortOrder') {
         const n = parseInt(val, 10);
         val = Number.isFinite(n) ? n : 999;

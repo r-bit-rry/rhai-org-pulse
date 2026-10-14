@@ -164,6 +164,14 @@ describe('mapRow', () => {
     const result = mapRow({ slug: 'test' }, ENTRY_COLUMN_MAP);
     expect(result.sortOrder).toBe(999);
   });
+
+  it('stringifies numeric cells instead of passing numbers through', () => {
+    const result = mapRow({ slug: 123, title: 42, sort_order: 3 }, ENTRY_COLUMN_MAP);
+
+    expect(result.slug).toBe('123');
+    expect(result.title).toBe('42');
+    expect(result.sortOrder).toBe(3);
+  });
 });
 
 describe('constants', () => {
