@@ -755,6 +755,90 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
     expect(storage.map.has('ai-catalyst/boards/2026-09.json')).toBe(false)
   })
 
+  it('fails the board and preserves the cache when pm_review_history contains a null element', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': { boards: ['board-2026-09'] },
+      '/feed/board.json?board=board-2026-09': {
+        count: 1,
+        rows: [{ title: 'Null Element', unique_id: 'org/null-el', pm_review_history: '[null]' }],
+      },
+    })
+    const cachedBoard = [{ title: 'Cached Entry', uniqueId: 'org/cached' }]
+    const { handlers, storage } = makeContext({
+      storage: makeStorage({
+        'ai-catalyst/index.json': {
+          boards: [{ month: '2026-09', candidateCount: 1, lastSynced: '2026-09-16T10:00:00Z' }],
+          lastSynced: '2026-09-16T10:00:00Z',
+        },
+        'ai-catalyst/boards/2026-09.json': cachedBoard,
+      }),
+    })
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(res.status).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'ok',
+      synced: 0,
+      total: 1,
+      failed: [{ board: 'board-2026-09', error: expect.stringContaining('pm_review_history') }],
+    }))
+    expect(storage.writeToStorage).not.toHaveBeenCalledWith('ai-catalyst/boards/2026-09.json', expect.anything())
+    expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toBe(cachedBoard)
+  })
+
+  it('fails the board when a pm_review_history element has a non-string decision', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': { boards: ['board-2026-09'] },
+      '/feed/board.json?board=board-2026-09': {
+        count: 1,
+        rows: [{ title: 'Numeric Decision', unique_id: 'org/num-decision', pm_review_history: '[{"reviewer":"a","decision":5}]' }],
+      },
+    })
+    const { handlers, storage } = makeContext()
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'ok',
+      synced: 0,
+      total: 1,
+      failed: [{ board: 'board-2026-09', error: expect.stringContaining('decision') }],
+    }))
+    expect(storage.map.has('ai-catalyst/boards/2026-09.json')).toBe(false)
+  })
+
+  it('accepts well-formed pm_review_history elements and an empty history array', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': { boards: ['board-2026-09'] },
+      '/feed/board.json?board=board-2026-09': {
+        count: 2,
+        rows: [
+          { title: 'Good History', unique_id: 'org/good', pm_review_history: '[{"reviewer":"a","decision":"approve","timestamp":"2026-10-01T00:00:00Z"}]' },
+          { title: 'Empty History', unique_id: 'org/empty', pm_review_history: '[]' },
+        ],
+      },
+    })
+    const { handlers, storage } = makeContext()
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'ok',
+      synced: 1,
+      total: 1,
+      failed: [],
+    }))
+    const board = storage.map.get('ai-catalyst/boards/2026-09.json')
+    expect(board[0].pmReviewHistory).toEqual([
+      { reviewer: 'a', decision: 'approve', timestamp: '2026-10-01T00:00:00Z' },
+    ])
+    expect(board[1].pmReviewHistory).toEqual([])
+  })
+
   it('fails the board and preserves the cache when every row parses empty but count is positive', async () => {
     stubFeedFeed({
       '/feed/boards.json': { boards: ['board-2026-09'] },

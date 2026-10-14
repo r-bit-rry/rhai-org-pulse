@@ -93,6 +93,15 @@ function parseFeedRow(row) {
         if (!Array.isArray(parsed)) {
           throw new Error(`malformed ${key} on feed row "${row.title || row.unique_id || 'unknown'}" — expected a JSON array`);
         }
+        // Elements reach CandidateDetail.vue, which reads review.timestamp
+        // and lowercases review.decision: a null element or non-string
+        // decision must fail the board here, not crash the client later.
+        const badElement = parsed.find(e =>
+          !(e && typeof e === 'object' && !Array.isArray(e)) ||
+          (e.decision !== undefined && typeof e.decision !== 'string'));
+        if (badElement !== undefined) {
+          throw new Error(`malformed ${key} on feed row "${row.title || row.unique_id || 'unknown'}" — every element must be an object with a string decision`);
+        }
         obj[camel] = parsed;
       }
     } else {
