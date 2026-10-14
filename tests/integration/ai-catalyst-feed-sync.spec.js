@@ -4,8 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const express = require('express');
-const storage = require('../../shared/server/storage');
-const { createTestContext } = require('../../shared/server/module-context');
+const coreDir = path.dirname(require.resolve('@org-pulse/core/package.json'));
+const storage = require(path.join(coreDir, 'shared/server/storage'));
+const { createTestContext } = require(path.join(coreDir, 'shared/server/module-context'));
 const { setupErrorTracking, logCapturedErrors } = require('./helpers');
 
 /**
