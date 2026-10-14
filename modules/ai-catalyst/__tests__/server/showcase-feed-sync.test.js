@@ -391,6 +391,27 @@ describe('fetchShowcaseData', () => {
     expect(result.entries[0].slug).toBe('stored-entry');
   });
 
+  it('caches the stored fallback in normalized form', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('feed down'); }));
+    const stored = {
+      entries: [{ slug: 'stored-entry', strategyPillarKey: 'future-pillar' }],
+      pillars: [],
+    };
+    const storage = {
+      writeToStorage: vi.fn(async () => {}),
+      readFromStorage: vi.fn(async () => stored),
+    };
+
+    const first = await getShowcaseData('https://feed.example.test', 'token-123', storage);
+    const second = await getShowcaseData('https://feed.example.test', 'token-123', storage);
+
+    // The second call serves the in-memory cache on another failed fetch:
+    // it must carry the same normalized shape (synthesized pillar metadata),
+    // not the raw stored object.
+    expect(second).toEqual(first);
+    expect(second.pillars.map(p => p.pillarKey)).toEqual(['future-pillar']);
+  });
+
   it('rejects null showcase entry rows instead of wiping the catalog', async () => {
     stubFeed({ '/feed/showcase.json': { showcase_entries: [null], strategy_pillars: [] } });
     const storage = { writeToStorage: vi.fn(async () => {}), readFromStorage: vi.fn(async () => null) };

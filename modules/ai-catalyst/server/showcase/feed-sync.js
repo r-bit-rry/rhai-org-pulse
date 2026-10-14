@@ -264,8 +264,9 @@ async function getShowcaseData(baseUrl, token, storage, allowedOrigins, allowLoo
       const stored = await storage.readFromStorage(STORAGE_KEY);
       if (stored) {
         console.error('[ai-catalyst:showcase] Feed fetch failed, using stored fallback:', err.message);
-        _cache = { data: stored, ts: 0 };
-        return normalizeShowcaseData(stored);
+        const normalized = normalizeShowcaseData(stored);
+        _cache = { data: normalized, ts: 0 };
+        return normalized;
       }
     }
 
