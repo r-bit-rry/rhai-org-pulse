@@ -874,6 +874,43 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
     expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toEqual(cachedBoard)
   })
 
+  it('fails the board and preserves a populated cached month when count is 0', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': { boards: ['board-2026-09'] },
+      '/feed/board.json?board=board-2026-09': { count: 0, rows: [] },
+    })
+    const cachedBoard = [{ title: 'Cached Entry', uniqueId: 'org/cached' }]
+    const storedIndex = {
+      boards: [{ month: '2026-09', candidateCount: 1, lastSynced: '2026-09-16T10:00:00Z' }],
+      lastSynced: '2026-09-16T10:00:00Z',
+    }
+    const { context, handlers, storage } = makeContext({
+      storage: makeStorage({
+        'ai-catalyst/index.json': storedIndex,
+        'ai-catalyst/boards/2026-09.json': cachedBoard,
+      }),
+    })
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(res.status).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'ok',
+      synced: 0,
+      total: 1,
+      failed: [{ board: 'board-2026-09', error: expect.stringContaining('degraded') }],
+    }))
+    expect(storage.writeToStorage).not.toHaveBeenCalledWith('ai-catalyst/boards/2026-09.json', expect.anything())
+    expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toBe(cachedBoard)
+    expect(storage.map.get('ai-catalyst/index.json')).toEqual(storedIndex)
+
+    const syncBoardsConfig = context.registerRefresh.mock.calls.find(c => c[0] === 'ai-catalyst:sync-boards')[1]
+    await expect(syncBoardsConfig.handler()).rejects.toThrow(
+      'Board sync failed for 1/1 boards — board-2026-09:',
+    )
+  })
+
   it('accepts a legitimately empty board with count 0 and no rows', async () => {
     stubFeedFeed({
       '/feed/boards.json': { boards: ['board-2026-09'] },
