@@ -13,6 +13,7 @@ import {
   mergePillarMetadata,
   normalizeShowcaseData,
   ARRAY_FIELDS,
+  READ_PATH_TIMEOUT_MS,
   STORAGE_KEY,
 } from '../../server/showcase/feed-sync.js';
 
@@ -185,6 +186,10 @@ describe('constants', () => {
     expect(ARRAY_FIELDS.has('capabilityTags')).toBe(true);
     expect(ARRAY_FIELDS.has('customerNeedTags')).toBe(true);
     expect(ARRAY_FIELDS.has('githubUrl')).toBe(true);
+  });
+
+  it('exports the read-path timeout default used by getShowcaseData', () => {
+    expect(READ_PATH_TIMEOUT_MS).toBe(5000);
   });
 });
 

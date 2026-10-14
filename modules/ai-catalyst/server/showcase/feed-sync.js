@@ -2,6 +2,9 @@ const { createFeedClient, FeedError } = require('../feed-client');
 
 const STORAGE_KEY = 'ai-catalyst/showcase/showcase-data.json';
 const CACHE_TTL = 5 * 60 * 1000;
+// Read routes must degrade to stored data quickly when the showcase host is
+// unreachable — only the sync paths wait out the full fetch timeout.
+const READ_PATH_TIMEOUT_MS = 5000;
 
 const ENTRY_COLUMN_MAP = {
   slug: 'slug',
@@ -244,7 +247,7 @@ async function fetchShowcaseData(baseUrl, token, storage, allowedOrigins, allowL
   return result;
 }
 
-async function getShowcaseData(baseUrl, token, storage, allowedOrigins, allowLoopback, timeoutMs) {
+async function getShowcaseData(baseUrl, token, storage, allowedOrigins, allowLoopback, timeoutMs = READ_PATH_TIMEOUT_MS) {
   if (_cache && Date.now() - _cache.ts < CACHE_TTL) {
     return _cache.data;
   }
@@ -286,6 +289,7 @@ module.exports = {
   mergePillarMetadata,
   getReferencedPillarKeys,
   normalizeShowcaseData,
+  READ_PATH_TIMEOUT_MS,
   ENTRY_COLUMN_MAP,
   PILLAR_COLUMN_MAP,
   ARRAY_FIELDS,

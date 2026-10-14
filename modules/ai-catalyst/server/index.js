@@ -18,9 +18,6 @@ const STORAGE_PREFIX = 'ai-catalyst';
 const INDEX_PATH = `${STORAGE_PREFIX}/index.json`;
 const DEFAULT_FEED_URL = 'https://pocexplorer.redhataicatalyst.com';
 const DEFAULT_SHOWCASE_FEED_URL = 'https://showcase.redhataicatalyst.com';
-// Read routes must degrade to stored data quickly when the showcase host is
-// unreachable — only the sync paths wait out the full fetch timeout.
-const READ_PATH_TIMEOUT_MS = 5000;
 
 const LIST_FIELDS = new Set([
   'capability_labels', 'red_hat_stack', 'sources'
@@ -642,7 +639,7 @@ module.exports = function registerRoutes(router, context) {
     try {
       if (await isConfigured()) {
         return normalizeShowcaseData(
-          await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback, READ_PATH_TIMEOUT_MS),
+          await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback),
         );
       }
     } catch (err) {
@@ -703,7 +700,7 @@ module.exports = function registerRoutes(router, context) {
       if (DEMO_MODE || !(await isConfigured())) {
         data = await loadShowcaseDemoData();
       } else {
-        data = await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback, READ_PATH_TIMEOUT_MS);
+        data = await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback);
       }
 
       data = normalizeShowcaseData(data);
@@ -748,7 +745,7 @@ module.exports = function registerRoutes(router, context) {
       if (DEMO_MODE || !(await isConfigured())) {
         data = await loadShowcaseDemoData();
       } else {
-        data = await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback, READ_PATH_TIMEOUT_MS);
+        data = await getShowcaseData(await getShowcaseFeedUrl(), getFeedToken(), storage, getAllowedFeedOrigins(), allowLoopback);
       }
 
       data = normalizeShowcaseData(data);
