@@ -341,7 +341,6 @@ To contribute widgets to the customizable "State of the Union" dashboard, declar
 - Run all tests: `npm test`
 - Module manifest validation: `npm run validate:modules`
 - **Integration tests**: Playwright tests in `tests/integration/` validate module UI (see CONTRIBUTING.md)
-- Tests that need a writable, non-demo backend (e.g. the ai-catalyst feed-sync spec) skip themselves under `make test-module MODULE=<name>`; run `make test-ai-catalyst-feed-sync` for that path
 
 ## CODEOWNERS
 
