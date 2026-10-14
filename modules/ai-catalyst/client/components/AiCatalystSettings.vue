@@ -140,6 +140,7 @@ onMounted(() => {
             />
             <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">
               Optional override of the board/run feed base URL. The POC_EXPLORER_FEED_TOKEN secret is required for syncing.
+              The override must match an operator-approved origin (see POC_EXPLORER_FEED_URL), otherwise sync fails closed.
             </p>
           </div>
 
@@ -177,6 +178,7 @@ onMounted(() => {
           />
           <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">
             Optional override of the showcase feed base URL (separate from the board feed URL).
+            The override must match an operator-approved origin (see POC_EXPLORER_SHOWCASE_FEED_URL), otherwise sync fails closed.
           </p>
         </div>
 
