@@ -161,32 +161,33 @@ test-module: ## Run integration tests for a module (MODULE=<name>)
 # in the test container because the workspace's src/ symlink is absolute.
 # Usage: make test-ai-catalyst-feed-sync
 test-ai-catalyst-feed-sync: ## Run ai-catalyst feed-sync tests (non-demo backend + local stub)
-	@echo "Starting backend container (non-demo, dummy feed token, loopback allowed)..."
-	@mkdir -p data
-	@if [ ! -f data/modules-state.json ]; then \
-		echo '{"ai-catalyst": true}' > data/modules-state.json; \
-	fi
-	$(CONTAINER_RUNTIME) run -d --network host \
-		--user 0:0 \
-		-e POC_EXPLORER_FEED_TOKEN=ci-dummy-token \
-		-e POC_EXPLORER_ALLOW_LOOPBACK=1 \
-		-v $(CURDIR)/data:/app/data:z \
-		--name $(BACKEND_CONTAINER) \
-		$(BACKEND_IMAGE) > /dev/null
-	@echo "Waiting for backend to be ready..."
-	$(CONTAINER_RUNTIME) run --rm --network host $(BACKEND_IMAGE) node -e "const deadline = Date.now() + 60000; (async () => { for (;;) { try { const r = await fetch('http://localhost:3001/api/healthz'); if (r.ok) { console.log('backend is ready'); process.exit(0); } } catch {} if (Date.now() > deadline) { console.error('backend failed to start'); process.exit(1); } await new Promise(r => setTimeout(r, 1000)); } })();"
-	@echo "Starting frontend container..."
-	$(CONTAINER_RUNTIME) run -d --network host \
-		--add-host=backend:127.0.0.1 \
-		--name $(FRONTEND_CONTAINER) \
-		$(FRONTEND_IMAGE) > /dev/null
-	@echo "Waiting for frontend to be ready..."
-	$(CONTAINER_RUNTIME) run --rm --network host $(BACKEND_IMAGE) node -e "const deadline = Date.now() + 60000; (async () => { for (;;) { try { const r = await fetch('http://localhost:8080/healthz'); if (r.ok) { console.log('frontend is ready'); process.exit(0); } } catch {} if (Date.now() > deadline) { console.error('frontend failed to start'); process.exit(1); } await new Promise(r => setTimeout(r, 1000)); } })();"
-	@echo "Running ai-catalyst feed-sync spec..."
-	$(CONTAINER_RUNTIME) run $(CONTAINER_FLAGS) $(COMMON_ENV) \
-		-e CI=1 \
-		$(PLAYWRIGHT_IMAGE) \
-		bash -c "$(SETUP_CMD) && npx playwright test tests/integration/ai-catalyst-feed-sync.spec.js --workers=1" || \
+	@( \
+		echo "Starting backend container (non-demo, dummy feed token, loopback allowed)..." && \
+		mkdir -p data && \
+		if [ ! -f data/modules-state.json ]; then \
+			echo '{"ai-catalyst": true}' > data/modules-state.json; \
+		fi && \
+		$(CONTAINER_RUNTIME) run -d --network host \
+			--user 0:0 \
+			-e POC_EXPLORER_FEED_TOKEN=ci-dummy-token \
+			-e POC_EXPLORER_ALLOW_LOOPBACK=1 \
+			-v $(CURDIR)/data:/app/data:z \
+			--name $(BACKEND_CONTAINER) \
+			$(BACKEND_IMAGE) > /dev/null && \
+		echo "Waiting for backend to be ready..." && \
+		$(CONTAINER_RUNTIME) run --rm --network host $(BACKEND_IMAGE) node -e "const deadline = Date.now() + 60000; (async () => { for (;;) { try { const r = await fetch('http://localhost:3001/api/healthz'); if (r.ok) { console.log('backend is ready'); process.exit(0); } } catch {} if (Date.now() > deadline) { console.error('backend failed to start'); process.exit(1); } await new Promise(r => setTimeout(r, 1000)); } })();" && \
+		echo "Starting frontend container..." && \
+		$(CONTAINER_RUNTIME) run -d --network host \
+			--add-host=backend:127.0.0.1 \
+			--name $(FRONTEND_CONTAINER) \
+			$(FRONTEND_IMAGE) > /dev/null && \
+		echo "Waiting for frontend to be ready..." && \
+		$(CONTAINER_RUNTIME) run --rm --network host $(BACKEND_IMAGE) node -e "const deadline = Date.now() + 60000; (async () => { for (;;) { try { const r = await fetch('http://localhost:8080/healthz'); if (r.ok) { console.log('frontend is ready'); process.exit(0); } } catch {} if (Date.now() > deadline) { console.error('frontend failed to start'); process.exit(1); } await new Promise(r => setTimeout(r, 1000)); } })();" && \
+		echo "Running ai-catalyst feed-sync spec..." && \
+		$(CONTAINER_RUNTIME) run $(CONTAINER_FLAGS) $(COMMON_ENV) \
+			-e CI=1 \
+			$(PLAYWRIGHT_IMAGE) \
+			bash -c "$(SETUP_CMD) && npx playwright test tests/integration/ai-catalyst-feed-sync.spec.js --workers=1") || \
 		(EXIT_CODE=$$?; $(MAKE) clean-integration-test; exit $$EXIT_CODE)
 	@echo "ai-catalyst feed-sync tests passed!"
 	@$(MAKE) clean-integration-test
