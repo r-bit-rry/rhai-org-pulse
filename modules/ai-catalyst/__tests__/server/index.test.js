@@ -629,6 +629,76 @@ describe('ai-catalyst board sync via POC Explorer feed', () => {
     expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toEqual(cachedBoard)
   })
 
+  it('fails the board and preserves the cache when rows are whitespace-only', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': { boards: ['board-2026-09'] },
+      '/feed/board.json?board=board-2026-09': {
+        count: 2,
+        rows: [
+          { title: ' ', unique_id: ' ', pm_decision: ' ' },
+          { title: '  ', unique_id: '  ', problem_statement: '\t' },
+        ],
+      },
+    })
+    const cachedBoard = [{ title: 'Cached Entry', uniqueId: 'org/cached' }]
+    const storedIndex = {
+      boards: [{ month: '2026-09', candidateCount: 1, lastSynced: '2026-09-16T10:00:00Z' }],
+      lastSynced: '2026-09-16T10:00:00Z',
+    }
+    const { context, handlers, storage } = makeContext({
+      storage: makeStorage({
+        'ai-catalyst/index.json': storedIndex,
+        'ai-catalyst/boards/2026-09.json': cachedBoard,
+      }),
+    })
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(res.status).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'ok',
+      synced: 0,
+      total: 1,
+      failed: [{ board: 'board-2026-09', error: expect.stringContaining('degraded') }],
+    }))
+    expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toEqual(cachedBoard)
+    expect(storage.map.get('ai-catalyst/index.json')).toEqual(storedIndex)
+
+    const syncBoardsConfig = context.registerRefresh.mock.calls.find(c => c[0] === 'ai-catalyst:sync-boards')[1]
+    await expect(syncBoardsConfig.handler()).rejects.toThrow(
+      'Board sync failed for 1/1 boards — board-2026-09:',
+    )
+  })
+
+  it('drops whitespace-only padding rows alongside real rows', async () => {
+    stubFeedFeed({
+      '/feed/boards.json': { boards: ['board-2026-09'] },
+      '/feed/board.json?board=board-2026-09': {
+        count: 2,
+        rows: [
+          { title: 'Real Entry', unique_id: 'org/real', impact_score: '8' },
+          { title: ' ', unique_id: ' ' },
+        ],
+      },
+    })
+    const { handlers, storage } = makeContext()
+
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+    await handlers['/sync']({}, res)
+
+    expect(res.status).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'ok',
+      synced: 1,
+      total: 1,
+      failed: [],
+    }))
+    expect(storage.map.get('ai-catalyst/boards/2026-09.json')).toEqual([
+      expect.objectContaining({ title: 'Real Entry', uniqueId: 'org/real', impactScore: 8 }),
+    ])
+  })
+
   it('fails the board and preserves the cache when pm_review_history is not valid JSON', async () => {
     stubFeedFeed({
       '/feed/boards.json': { boards: ['board-2026-09'] },

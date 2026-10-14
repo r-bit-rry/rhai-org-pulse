@@ -104,7 +104,10 @@ function parseFeedRow(row) {
 
 function parseBoardRows(rows) {
   return (Array.isArray(rows) ? rows : [])
-    .filter(row => row && Object.values(row).some(v => v !== '' && v !== null && v !== undefined))
+    // Padding rows are empty after trimming — the parser trims every cell,
+    // so an untrimmed emptiness test would keep whitespace-only rows and
+    // store garbage candidates over valid cached data.
+    .filter(row => row && Object.values(row).some(v => v != null && String(v).trim() !== ''))
     .map(row => parseFeedRow(row));
 }
 
